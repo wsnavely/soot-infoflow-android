@@ -28,7 +28,6 @@ import soot.jimple.toolkits.ide.icfg.BiDiInterproceduralCFG;
 /**
  * SourceManager implementation for AndroidSources
  * 
- * @author Steven Arzt
  */
 public class AndroidSourceSinkManager extends MethodBasedSourceSinkManager {
 	
@@ -37,7 +36,6 @@ public class AndroidSourceSinkManager extends MethodBasedSourceSinkManager {
 	/**
 	 * Possible modes for matching layout components as data flow sources
 	 * 
-	 * @author Steven Arzt
 	 */
 	public enum LayoutMatchingMode {
 		/**

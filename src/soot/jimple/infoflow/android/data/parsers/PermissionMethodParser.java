@@ -15,7 +15,6 @@ import soot.jimple.infoflow.android.data.AndroidMethod;
 /**
  * Parser for the permissions to method map of Adrienne Porter Felt. 
  * 
- * @author Siegfried Rasthofer
  */
 public class PermissionMethodParser implements IPermissionMethodParser {
 	

@@ -11,7 +11,6 @@ import soot.jimple.infoflow.data.SootMethodAndClass;
 /**
  * Class representing a single method in the Android SDK
  *
- * @author Steven Arzt, Siegfried Rasthofer
  *
  */
 public class AndroidMethod extends SootMethodAndClass{

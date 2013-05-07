@@ -14,7 +14,6 @@ import java.util.Set;
  * Structure declarations and comments taken from the Android source
  * code and ported from C to Java.
  * 
- * @author Steven Arzt
  */
 public class ARSCFileParser extends AbstractResourceParser {
 	

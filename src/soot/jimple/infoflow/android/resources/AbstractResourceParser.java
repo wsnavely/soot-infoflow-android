@@ -9,7 +9,6 @@ import java.util.zip.ZipFile;
 /**
  * Common base class for all resource parser classes
  * 
- * @author Steven Arzt
  */
 public abstract class AbstractResourceParser {
 
@@ -21,7 +20,6 @@ public abstract class AbstractResourceParser {
 	 * name (excluding extension) in this set will be analyzed.
 	 * @param handler The handler for processing the apk file
 	 * 
-	 * @author Steven Arzt
 	 */
 	protected void handleAndroidResourceFiles(String apk, Set<String> fileNameFilter,
 			IResourceHandler handler) {

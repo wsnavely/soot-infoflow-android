@@ -9,7 +9,6 @@ import soot.jimple.infoflow.android.data.AndroidMethod;
  * Common interface for all parsers that are able to read in files with Android
  * methods and permissions
  *
- * @author Steven Arzt
  *
  */
 public interface IPermissionMethodParser {

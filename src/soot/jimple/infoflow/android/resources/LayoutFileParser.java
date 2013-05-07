@@ -19,7 +19,6 @@ import soot.Transform;
 /**
  * Parser for analyzing the layout XML files inside an android application
  * 
- * @author Steven Arzt
  *
  */
 public class LayoutFileParser extends AbstractResourceParser {

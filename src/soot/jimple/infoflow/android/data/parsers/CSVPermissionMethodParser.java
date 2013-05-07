@@ -13,7 +13,6 @@ import soot.jimple.infoflow.android.data.AndroidMethod;
 /**
  * Parser for Android method / permission maps in the format defined by Port Felt
  *
- * @author Steven Arzt
  *
  */
 public class CSVPermissionMethodParser implements IPermissionMethodParser {

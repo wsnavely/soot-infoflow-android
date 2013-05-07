@@ -28,7 +28,6 @@ import soot.jimple.toolkits.callgraph.ReachableMethods;
  * Analyzes the classes in the APK file to find custom implementations of the
  * well-known Android callback and handler interfaces.
  * 
- * @author Steven Arzt
  *
  */
 public class AnalyzeJimpleClass {

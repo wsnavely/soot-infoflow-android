@@ -3,7 +3,6 @@ package soot.jimple.infoflow.android.data;
 /**
  * Class representing a single parameter of an Android method
  *
- * @author Steven Arzt
  *
  */
 public class MethodParameter {

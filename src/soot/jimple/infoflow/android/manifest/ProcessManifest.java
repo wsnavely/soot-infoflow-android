@@ -34,7 +34,6 @@ public class ProcessManifest {
 	 * @param apk The apk file to process
 	 * @param handler The handler for processing the apk file
 	 * 
-	 * @author Steven Arzt
 	 */
 	private void handleAndroidManifestFile(String apk, IManifestHandler handler) {
 		File apkF = new File(apk);

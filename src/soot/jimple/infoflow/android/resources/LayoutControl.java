@@ -5,7 +5,6 @@ import soot.SootClass;
 /**
  * Data class representing a layout control on the android screen
  * 
- * @author Steven Arzt
  *
  */
 public class LayoutControl {

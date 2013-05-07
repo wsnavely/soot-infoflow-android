@@ -17,7 +17,6 @@ import soot.jimple.infoflow.android.data.AndroidMethod.CATEGORY;
 /**
  * Parser of the permissions to method map from the University of Toronto (PScout)
  * 
- * @author Siegfried Rasthofer
  */
 public class PScoutPermissionMethodParser implements IPermissionMethodParser {
 	private static final int INITIAL_SET_SIZE = 10000;

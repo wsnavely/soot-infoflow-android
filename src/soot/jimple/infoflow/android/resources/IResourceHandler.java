@@ -6,7 +6,6 @@ import java.util.Set;
 /**
  * Common interface for handlers working on Android resource XML files
  * 
- * @author Steven Arzt
  *
  */
 public interface IResourceHandler {
