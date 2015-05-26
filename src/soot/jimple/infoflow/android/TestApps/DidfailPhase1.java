@@ -96,22 +96,28 @@ public class DidfailPhase1 {
 					println("<flow>");
 					printf("\t<sink method=\"%s\"", escapeXML(methSig));
 					if (Infoflow.isIntentSink(sink)) {
+
+					}
+					if (Infoflow.isIntentSink(sink)) {
 						IntentTag tag = (IntentTag) sink.getTag("IntentID");
 						String id = escapeXML(tag.getIntentID());
 						printf(" is-intent=\"1\"");
 						printf(" intent-id=\"%s\"", id);
+						try {
+							InvokeExpr ie = sink.getInvokeExpr();
+							AbstractInstanceInvokeExpr aie = (AbstractInstanceInvokeExpr) ie;
+							Type baseType = aie.getBase().getType();
+							String cmp = escapeXML(baseType.toString());
+							printf(" component=\"%s\"", cmp);
+						} catch (Exception e) {
+						}
 					}
 					if (Infoflow.isIntentResultSink(sink)) {
 						print(" is-intent-result=\"1\"");
-					}
-
-					try {
-						InvokeExpr ie = sink.getInvokeExpr();
-						AbstractInstanceInvokeExpr aie = (AbstractInstanceInvokeExpr) ie;
-						Type baseType = aie.getBase().getType();
-						String cmp = escapeXML(baseType.toString());
+						SootMethod sm = cfg.getMethodOf(sink);
+						SootClass cls = sm.getDeclaringClass();
+						String cmp = escapeXML(cls.toString());
 						printf(" component=\"%s\"", cmp);
-					} catch (Exception e) {
 					}
 					println("></sink>");
 
@@ -135,10 +141,6 @@ public class DidfailPhase1 {
 							String cmp = escapeXML(baseType.toString());
 							printf(" component=\"%s\"", cmp);
 						} else if (methSig.indexOf(":= @parameter") != -1) {
-							/*
-							 * Handle onActivityResult, onStartCommand,
-							 * onReceive, etc.
-							 */
 							SootClass cls = sm.getDeclaringClass();
 							String cmp = escapeXML(cls.toString());
 							printf(" component=\"%s\"", cmp);
