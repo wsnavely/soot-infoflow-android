@@ -621,4 +621,7 @@ public class AndroidSourceSinkManager implements ISourceSinkManager {
 		this.appPackageName = appPackageName;
 	}
 	
+	public String getAppPackageName() {
+		return this.appPackageName;
+	}
 }

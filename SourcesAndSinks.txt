@@ -307,6 +307,7 @@
 
 <android.app.Activity: android.content.Intent getIntent()> -> _SOURCE_
 
+<android.app.Activity: void setResult(int)> -> _SINK_
 <android.app.Activity: void setResult(int,android.content.Intent)> -> _SINK_
 <android.app.Activity: void onActivityResult(int,int,android.content.Intent)> -> _SOURCE_
 
