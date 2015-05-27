@@ -1,0 +1,149 @@
+package soot.jimple.infoflow.android.TestApps;
+
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import soot.SootClass;
+import soot.SootMethod;
+import soot.Value;
+import soot.ValueBox;
+import soot.jimple.AssignStmt;
+import soot.jimple.IfStmt;
+import soot.jimple.InvokeExpr;
+import soot.jimple.StringConstant;
+import soot.jimple.infoflow.android.TestApps.BETSet.Comparison;
+import soot.jimple.internal.AbstractBinopExpr;
+import soot.jimple.internal.JEqExpr;
+import soot.jimple.internal.JNeExpr;
+import soot.toolkits.graph.UnitGraph;
+
+public class BooleanExpressionTagger extends JimpleAnalysis {
+
+    private final Logger logger = LoggerFactory.getLogger(getClass());
+    
+	private AktFlowProcessor fp;
+
+	public BooleanExpressionTagger(UnitGraph graph) {
+		super(graph);
+		fp = new AndroidFlowProcessor();
+		doAnalysis();
+	}
+
+	@Override
+	protected void flowThroughAssign(BETSet in, AssignStmt stmt,
+			List<BETSet> fallOut, List<BETSet> branchOuts) {
+		Value left = stmt.getLeftOp();
+		Value right = stmt.getRightOp();
+		BETSet out = fallOut.get(0);
+
+		if (out.isIntentProperty(right)) {
+			out.addIntentPropertyAlias(left, right);
+			logger.info("[AKTION][INTENTALIAS] " + stmt);
+		} else if (out.isStringConstant(right)) {
+			out.addStringConstantAlias(left, right);
+			logger.info("[AKTION][STRALIAS] " + stmt);
+		} else if (right instanceof StringConstant) {
+			out.addStringConstant(left, right);
+			logger.info("[AKTION][STRSRC] " + stmt);
+		} else if (stmt.containsInvokeExpr()) {
+			InvokeExpr ie = stmt.getInvokeExpr();
+			SootMethod sm = ie.getMethod();
+			
+			if (fp.isIntentPropertyGetter(sm)) {
+				out.addIntentProperty(left, ie);
+				logger.info("[AKTION][INTENTSRC] " + stmt);
+			} else if (isStringEquals(sm)) {
+				Set<ValueBox> boxes = new HashSet<ValueBox>(ie.getUseBoxes());
+				ValueBox argBox = ie.getArgBox(0);
+				boxes.remove(argBox);
+				Value arg = argBox.getValue();
+				Value caller = null;
+				for (ValueBox v : boxes) {
+					caller = v.getValue();
+					break;
+				}
+				out.processComparison(left, arg, caller);
+			}
+		}
+	}
+
+	@Override
+	protected void flowThroughIf(BETSet in, IfStmt stmt, List<BETSet> fallOut, List<BETSet> branchOuts) {
+		Value cond = stmt.getCondition();
+
+		if (cond instanceof JEqExpr || cond instanceof JNeExpr) {
+			AbstractBinopExpr eq = (AbstractBinopExpr) cond;
+			Value left = eq.getOp1();
+			Value right = eq.getOp2();
+			Comparison<Value, Value> cmp;
+			String op = cond instanceof JEqExpr ? "==" : "!=";
+			String opNeg = cond instanceof JEqExpr ? "!=" : "==";
+			
+			if (in.isIntentPropertyCmp(left)) {
+				logger.info("[AKTION][BRANCH] " + stmt);
+				cmp = in.getIntentPropertyCmp(left);
+				String expr = String.format("E(%s, %s) %s %s;", fmt(cmp.x),
+						fmt(cmp.y), op, fmt(right));
+				String exprNeg = String.format("E(%s, %s) %s %s;", fmt(cmp.x),
+						fmt(cmp.y), opNeg, fmt(right));
+				System.out.println(expr);
+				fallOut.get(0).booleanExpression += exprNeg;
+				branchOuts.get(0).booleanExpression += expr;
+			} else if (in.isIntentPropertyCmp(right)) {
+				cmp = in.getIntentPropertyCmp(right);
+				System.out.printf("E(%s, %s, %s) %s %s\n", fmt(cmp.x),
+						fmt(cmp.y), cmp.isConstantComp, op, fmt(left));
+			} else if (in.isIntentProperty(left)) {
+				Value ip = in.getIntentProperty(left);
+				System.out.printf("%s %s %s\n", fmt(ip), op, fmt(right));
+			} else if (in.isIntentProperty(right)) {
+				Value ip = in.getIntentProperty(right);
+				System.out.printf("%s %s %s\n", fmt(ip), op, fmt(left));
+			}
+		}
+	}
+
+	private String fmt(Value val) {
+		if (val instanceof InvokeExpr) {
+			InvokeExpr ie = (InvokeExpr) val;
+			String method = ie.getMethod().getName();
+
+			String argStr = "";
+			boolean first = true;
+			for (Value arg : ie.getArgs()) {
+				if (first) {
+					first = false;
+				} else {
+					argStr += ",";
+				}
+				argStr += arg.toString();
+			}
+
+			Set<ValueBox> boxes = new HashSet<ValueBox>(ie.getUseBoxes());
+			Value caller = null;
+			for (ValueBox v : boxes) {
+				caller = v.getValue();
+				break;
+			}
+			return method;
+		} else {
+			return val.toString();
+		}
+	}
+
+	private boolean isStringEquals(SootMethod sm) {
+		SootClass sc = sm.getDeclaringClass();
+		String className = sc.getName();
+		String methodName = sm.getName();
+		if (className.equals("java.lang.String")) {
+			if (methodName.equals("equals")) {
+				return true;
+			}
+		}
+		return false;
+	}
+}

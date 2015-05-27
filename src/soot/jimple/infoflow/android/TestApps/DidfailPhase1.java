@@ -13,12 +13,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import soot.Body;
+import soot.PackManager;
+import soot.Scene;
+import soot.SceneTransformer;
 import soot.SootClass;
 import soot.SootMethod;
+import soot.Transform;
 import soot.Type;
 import soot.jimple.InvokeExpr;
 import soot.jimple.Stmt;
 import soot.jimple.infoflow.Infoflow;
+import soot.jimple.infoflow.handlers.PreAnalysisHandler;
 import soot.jimple.infoflow.results.InfoflowResults;
 import soot.jimple.infoflow.results.ResultSinkInfo;
 import soot.jimple.infoflow.results.ResultSourceInfo;
@@ -26,8 +32,49 @@ import soot.jimple.infoflow.solver.cfg.IInfoflowCFG;
 import soot.jimple.infoflow.util.IntentTag;
 import soot.jimple.internal.AbstractInstanceInvokeExpr;
 import soot.jimple.internal.AbstractInvokeExpr;
+import soot.tagkit.Tag;
+import soot.toolkits.graph.ExceptionalUnitGraph;
 
 public class DidfailPhase1 {
+	public static String outFile = null;
+
+	private static class DidfailPreprocessor implements PreAnalysisHandler {
+
+		@Override
+		public void onBeforeCallgraphConstruction() {
+			System.out.println("Didfail Before Callgraph");
+			PackManager
+					.v()
+					.getPack("wjap")
+					.add(new Transform("wjap.myTransform",
+							new SceneTransformer() {
+								@Override
+								protected void internalTransform(
+										String phaseName,
+										Map<String, String> options) {
+									for (SootClass sc : Scene.v().getClasses()) {
+										for (SootMethod m : sc.getMethods()) {
+											try {
+												Body b = m.retrieveActiveBody();
+												new BooleanExpressionTagger(
+														new ExceptionalUnitGraph(
+																b));
+											} catch (Exception e) {
+												continue;
+											}
+										}
+									}
+								}
+							}));
+		}
+
+		@Override
+		public void onAfterCallgraphConstruction() {
+			System.out.println("Didfail After CallGraph");
+			PackManager.v().getPack("wjap").apply();
+		}
+	}
+
 	private static final class DidfailResultHandler extends
 			AndroidInfoflowResultsHandler {
 		private BufferedWriter wr;
@@ -68,6 +115,15 @@ public class DidfailPhase1 {
 				String cmp = escapeXML(cls.toString());
 				printf(" component=\"%s\"", cmp);
 			}
+
+			if (sink.hasTag("BooleanExpressionTag")) {
+				Tag tag = sink.getTag("BooleanExpressionTag");
+				String value = new String(tag.getValue());
+				String[] items = value.split(";");
+				String expr = String.join(" AND ", items);
+				print(" cond=\"" + escapeXML(expr) + "\"");
+			}
+
 			println("></sink>");
 		}
 
@@ -90,6 +146,7 @@ public class DidfailPhase1 {
 				String cmp = escapeXML(cls.toString());
 				printf(" component=\"%s\"", cmp);
 			}
+
 			printf(" in=\"%s\"", escapeXML(methName));
 			println("></source>");
 		}
@@ -265,27 +322,41 @@ public class DidfailPhase1 {
 		System.err.println("Usage: [<outfile>] -- <flowdroid arguments>");
 	}
 
-	public static void main(final String[] args) throws IOException,
-			InterruptedException {
-		if (args.length < 2) {
-			usage();
-			System.exit(1);
+	private static boolean processDidfailArgs(String[] args) {
+		if (args.length == 1) {
+			outFile = args[0];
+			return true;
 		}
 
+		return false;
+	}
+
+	public static void main(final String[] args) throws IOException,
+			InterruptedException {
+
+		String[] didfailArgs = {};
 		String[] fdArgs = {};
-		String outFile = null;
-		if (args[1].equals("--")) {
-			outFile = args[0];
-			fdArgs = Arrays.copyOfRange(args, 2, args.length);
-		} else if (args[0].equals("--")) {
-			fdArgs = Arrays.copyOfRange(args, 1, args.length);
-		} else {
+
+		int split = -1;
+		for (int ii = 0; ii < args.length; ii++) {
+			if (args[ii].equals("--")) {
+				split = ii;
+				break;
+			}
+		}
+		didfailArgs = args;
+
+		if (split != -1) {
+			didfailArgs = Arrays.copyOfRange(args, 0, split);
+			fdArgs = Arrays.copyOfRange(args, split + 1, args.length);
+		}
+
+		if (!processDidfailArgs(didfailArgs)) {
 			usage();
 			System.exit(1);
 		}
 
 		DidfailResultHandler handler;
-
 		if (outFile != null) {
 			File out = new File(outFile);
 			FileWriter fw = new FileWriter(out);
@@ -296,6 +367,7 @@ public class DidfailPhase1 {
 			handler = new DidfailResultHandler();
 		}
 
+		FlowDroid.preprocessors.add(new DidfailPreprocessor());
 		FlowDroid.run(fdArgs, handler);
 	}
 }

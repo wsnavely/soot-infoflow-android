@@ -15,6 +15,7 @@ import soot.jimple.infoflow.IInfoflow.CallgraphAlgorithm;
 import soot.jimple.infoflow.android.SetupApplication;
 import soot.jimple.infoflow.android.source.AndroidSourceSinkManager.LayoutMatchingMode;
 import soot.jimple.infoflow.data.pathBuilders.DefaultPathBuilderFactory.PathBuilder;
+import soot.jimple.infoflow.handlers.PreAnalysisHandler;
 import soot.jimple.infoflow.ipc.IIPCManager;
 import soot.jimple.infoflow.results.InfoflowResults;
 import soot.jimple.infoflow.taintWrappers.EasyTaintWrapper;
@@ -25,24 +26,22 @@ public class FlowDroid {
 	static String command;
 	static boolean generate = false;
 
-	private static int timeout = -1;
-	private static int sysTimeout = -1;
+	public static boolean stopAfterFirstFlow = false;
+	public static boolean implicitFlows = false;
+	public static boolean staticTracking = true;
+	public static boolean enableCallbacks = true;
+	public static boolean enableExceptions = true;
+	public static int accessPathLength = 5;
+	public static LayoutMatchingMode layoutMatchingMode = LayoutMatchingMode.MatchSensitiveOnly;
+	public static boolean flowSensitiveAliasing = true;
+	public static boolean computeResultPaths = true;
+	public static boolean aggressiveTaintWrapper = false;
+	public static boolean librarySummaryTaintWrapper = false;
+	public static String summaryPath = "";
+	public static PathBuilder pathBuilder = PathBuilder.ContextInsensitiveSourceFinder;
+	public static List<PreAnalysisHandler> preprocessors = new ArrayList<PreAnalysisHandler>();
 
-	private static boolean stopAfterFirstFlow = false;
-	private static boolean implicitFlows = false;
-	private static boolean staticTracking = true;
-	private static boolean enableCallbacks = true;
-	private static boolean enableExceptions = true;
-	private static int accessPathLength = 5;
-	private static LayoutMatchingMode layoutMatchingMode = LayoutMatchingMode.MatchSensitiveOnly;
-	private static boolean flowSensitiveAliasing = true;
-	private static boolean computeResultPaths = true;
-	private static boolean aggressiveTaintWrapper = false;
-	private static boolean librarySummaryTaintWrapper = false;
-	private static String summaryPath = "";
-	private static PathBuilder pathBuilder = PathBuilder.ContextInsensitiveSourceFinder;
-
-	private static CallgraphAlgorithm callgraphAlgorithm = CallgraphAlgorithm.AutomaticSelection;
+	public static CallgraphAlgorithm callgraphAlgorithm = CallgraphAlgorithm.AutomaticSelection;
 
 	private static boolean DEBUG = false;
 
@@ -141,13 +140,7 @@ public class FlowDroid {
 	private static boolean parseAdditionalOptions(String[] args) {
 		int i = 2;
 		while (i < args.length) {
-			if (args[i].equalsIgnoreCase("--timeout")) {
-				timeout = Integer.valueOf(args[i + 1]);
-				i += 2;
-			} else if (args[i].equalsIgnoreCase("--systimeout")) {
-				sysTimeout = Integer.valueOf(args[i + 1]);
-				i += 2;
-			} else if (args[i].equalsIgnoreCase("--singleflow")) {
+			if (args[i].equalsIgnoreCase("--singleflow")) {
 				stopAfterFirstFlow = true;
 				i++;
 			} else if (args[i].equalsIgnoreCase("--implicit")) {
@@ -230,9 +223,6 @@ public class FlowDroid {
 	}
 
 	private static boolean validateAdditionalOptions() {
-		if (timeout > 0 && sysTimeout > 0) {
-			return false;
-		}
 		if (!flowSensitiveAliasing
 				&& callgraphAlgorithm != CallgraphAlgorithm.OnDemand
 				&& callgraphAlgorithm != CallgraphAlgorithm.AutomaticSelection) {
@@ -271,6 +261,7 @@ public class FlowDroid {
 			app.setFlowSensitiveAliasing(flowSensitiveAliasing);
 			app.setPathBuilder(pathBuilder);
 			app.setComputeResultPaths(computeResultPaths);
+			app.setPreprocessors(preprocessors);
 
 			final ITaintPropagationWrapper taintWrapper;
 			if (librarySummaryTaintWrapper) {
