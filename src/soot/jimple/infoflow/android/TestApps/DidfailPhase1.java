@@ -10,6 +10,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import soot.SootClass;
@@ -39,6 +40,60 @@ public class DidfailPhase1 {
 			this.wr = wr;
 		}
 
+		public void handleSink(ResultSinkInfo sinkInfo, IInfoflowCFG cfg,
+				InfoflowResults results) {
+			Stmt sink = sinkInfo.getSink();
+			String methSig = getMethSig(sink);
+
+			printf("\t<sink method=\"%s\"", escapeXML(methSig));
+
+			if (Infoflow.isIntentSink(sink)) {
+				IntentTag tag = (IntentTag) sink.getTag("IntentID");
+				String id = escapeXML(tag.getIntentID());
+				printf(" is-intent=\"1\"");
+				printf(" intent-id=\"%s\"", id);
+				try {
+					InvokeExpr ie = sink.getInvokeExpr();
+					AbstractInstanceInvokeExpr aie = (AbstractInstanceInvokeExpr) ie;
+					Type baseType = aie.getBase().getType();
+					String cmp = escapeXML(baseType.toString());
+					printf(" component=\"%s\"", cmp);
+				} catch (Exception e) {
+				}
+			}
+			if (Infoflow.isIntentResultSink(sink)) {
+				print(" is-intent-result=\"1\"");
+				SootMethod sm = cfg.getMethodOf(sink);
+				SootClass cls = sm.getDeclaringClass();
+				String cmp = escapeXML(cls.toString());
+				printf(" component=\"%s\"", cmp);
+			}
+			println("></sink>");
+		}
+
+		public void handleSource(ResultSourceInfo srcInfo, IInfoflowCFG cfg,
+				InfoflowResults results) {
+			Stmt src = srcInfo.getSource();
+			SootMethod sm = cfg.getMethodOf(src);
+			String methName = sm.getName();
+			String methSig = getMethSig(srcInfo.getSource());
+
+			printf("\t<source method=\"%s\"", escapeXML(methSig));
+			if (methSig.indexOf(" getIntent()") != -1) {
+				InvokeExpr ie = src.getInvokeExpr();
+				AbstractInstanceInvokeExpr aie = (AbstractInstanceInvokeExpr) ie;
+				Type baseType = aie.getBase().getType();
+				String cmp = escapeXML(baseType.toString());
+				printf(" component=\"%s\"", cmp);
+			} else if (methSig.indexOf(":= @parameter") != -1) {
+				SootClass cls = sm.getDeclaringClass();
+				String cmp = escapeXML(cls.toString());
+				printf(" component=\"%s\"", cmp);
+			}
+			printf(" in=\"%s\"", escapeXML(methName));
+			println("></source>");
+		}
+
 		public String getMethSig(Stmt stmt) {
 			if (!stmt.containsInvokeExpr()) {
 				return "Stmt(" + stmt.toString() + ")";
@@ -48,110 +103,70 @@ public class DidfailPhase1 {
 			return meth.getSignature();
 		}
 
+		private class SinkComparator implements Comparator<ResultSinkInfo> {
+			public String sinkToString(ResultSinkInfo s) {
+				String sig = getMethSig(s.getSink());
+				String tag = "";
+				if (s.getSink().hasTag("IntentID")) {
+					tag = ((IntentTag) s.getSink().getTag("IntentID"))
+							.getIntentID();
+				}
+				return sig + tag;
+			}
+
+			@Override
+			public int compare(ResultSinkInfo o1, ResultSinkInfo o2) {
+				return sinkToString(o1).compareTo(sinkToString(o2));
+			}
+		}
+
+		private class SourceComparator implements Comparator<ResultSourceInfo> {
+			public String sourceToString(ResultSourceInfo s) {
+				return getMethSig(s.getSource());
+			}
+
+			@Override
+			public int compare(ResultSourceInfo o1, ResultSourceInfo o2) {
+				return sourceToString(o1).compareTo(sourceToString(o2));
+			}
+		}
+
 		public void handleResults(IInfoflowCFG cfg, InfoflowResults results) {
-			Comparator<ResultSinkInfo> sinkSorter = new Comparator<ResultSinkInfo>() {
-				public String sinkToString(ResultSinkInfo s) {
-					String sig = getMethSig(s.getSink());
-					String tag = "";
-					if (s.getSink().hasTag("IntentID")) {
-						tag = ((IntentTag) s.getSink().getTag("IntentID"))
-								.getIntentID();
-					}
-					return sig + tag;
-				}
-
-				@Override
-				public int compare(ResultSinkInfo o1, ResultSinkInfo o2) {
-					return sinkToString(o1).compareTo(sinkToString(o2));
-				}
-			};
-
-			Comparator<ResultSourceInfo> sourceSorter = new Comparator<ResultSourceInfo>() {
-				public String sourceToString(ResultSourceInfo s) {
-					String sig = getMethSig(s.getSource());
-					return sig;
-				}
-
-				@Override
-				public int compare(ResultSourceInfo o1, ResultSourceInfo o2) {
-					return sourceToString(o1).compareTo(sourceToString(o2));
-				}
-			};
-
 			if (results == null) {
 				print("No results found.");
-			} else {
-				String pkg = escapeXML(this.getAppPackage());
-				println("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
-				println("<results package=\"" + pkg + "\">");
-
-				Set<ResultSinkInfo> sinks = results.getResults().keySet();
-				List<ResultSinkInfo> sortedSinks = new ArrayList<ResultSinkInfo>(
-						sinks);
-				Collections.sort(sortedSinks, sinkSorter);
-
-				for (ResultSinkInfo sinkInfo : sortedSinks) {
-					Stmt sink = sinkInfo.getSink();
-					String methSig = getMethSig(sink);
-					println("<flow>");
-					printf("\t<sink method=\"%s\"", escapeXML(methSig));
-					if (Infoflow.isIntentSink(sink)) {
-
-					}
-					if (Infoflow.isIntentSink(sink)) {
-						IntentTag tag = (IntentTag) sink.getTag("IntentID");
-						String id = escapeXML(tag.getIntentID());
-						printf(" is-intent=\"1\"");
-						printf(" intent-id=\"%s\"", id);
-						try {
-							InvokeExpr ie = sink.getInvokeExpr();
-							AbstractInstanceInvokeExpr aie = (AbstractInstanceInvokeExpr) ie;
-							Type baseType = aie.getBase().getType();
-							String cmp = escapeXML(baseType.toString());
-							printf(" component=\"%s\"", cmp);
-						} catch (Exception e) {
-						}
-					}
-					if (Infoflow.isIntentResultSink(sink)) {
-						print(" is-intent-result=\"1\"");
-						SootMethod sm = cfg.getMethodOf(sink);
-						SootClass cls = sm.getDeclaringClass();
-						String cmp = escapeXML(cls.toString());
-						printf(" component=\"%s\"", cmp);
-					}
-					println("></sink>");
-
-					Set<ResultSourceInfo> sources = results.getResults().get(
-							sinkInfo);
-					List<ResultSourceInfo> sortedSources = new ArrayList<ResultSourceInfo>(
-							sources);
-					Collections.sort(sortedSources, sourceSorter);
-
-					for (ResultSourceInfo srcInfo : sortedSources) {
-						Stmt src = srcInfo.getSource();
-						SootMethod sm = cfg.getMethodOf(src);
-						String methName = sm.getName();
-						methSig = getMethSig(srcInfo.getSource());
-						printf("\t<source method=\"%s\"", escapeXML(methSig));
-
-						if (methSig.indexOf(" getIntent()") != -1) {
-							InvokeExpr ie = src.getInvokeExpr();
-							AbstractInstanceInvokeExpr aie = (AbstractInstanceInvokeExpr) ie;
-							Type baseType = aie.getBase().getType();
-							String cmp = escapeXML(baseType.toString());
-							printf(" component=\"%s\"", cmp);
-						} else if (methSig.indexOf(":= @parameter") != -1) {
-							SootClass cls = sm.getDeclaringClass();
-							String cmp = escapeXML(cls.toString());
-							printf(" component=\"%s\"", cmp);
-						}
-						printf(" in=\"%s\"", escapeXML(methName));
-						println("></source>");
-					}
-					println("</flow>");
-				}
-				println("</results>");
+				return;
 			}
+
+			Map<ResultSinkInfo, Set<ResultSourceInfo>> resultInfos;
+			resultInfos = results.getResults();
+			Comparator<ResultSinkInfo> sinkSorter = new SinkComparator();
+			Comparator<ResultSourceInfo> sourceSorter = new SourceComparator();
+			String pkg = escapeXML(this.getAppPackage());
+
+			// Sort the sinks
+			Set<ResultSinkInfo> sinkSet = results.getResults().keySet();
+			List<ResultSinkInfo> sinks = new ArrayList<ResultSinkInfo>();
+			sinks.addAll(sinkSet);
+			Collections.sort(sinks, sinkSorter);
+
+			println("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+			printf("<results package=\"%s\">\n", pkg);
+			for (ResultSinkInfo sinkInfo : sinks) {
+				println("<flow>");
+				handleSink(sinkInfo, cfg, results);
+
+				// Sort the sourcesO
+				Set<ResultSourceInfo> srcSet = resultInfos.get(sinkInfo);
+				List<ResultSourceInfo> srcs = new ArrayList<ResultSourceInfo>();
+				srcs.addAll(srcSet);
+				Collections.sort(srcs, sourceSorter);
+
+				for (ResultSourceInfo srcInfo : srcs) {
+					handleSource(srcInfo, cfg, results);
+				}
+				println("</flow>");
+			}
+			println("</results>");
 		}
 
 		@Override
