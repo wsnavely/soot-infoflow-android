@@ -81,12 +81,11 @@ public class BETSet {
 
 	public void merge(BETSet other, BETSet out) {
 		out.clear();
-		// if (this.booleanExpression.length() > 0
-		// || other.booleanExpression.length() > 0) {
-		// System.out.println("MERGE:");
-		// System.out.println(this.booleanExpression);
-		// System.out.println(other.booleanExpression);
-		// }
+		if (this.booleanExpression.length() > 0
+				|| other.booleanExpression.length() > 0) {
+			out.booleanExpression = BooleanExpression.or(
+					this.booleanExpression, other.booleanExpression);
+		}
 
 		out.intentProps.putAll(this.intentProps);
 		out.strConsts.putAll(this.strConsts);
@@ -132,6 +131,7 @@ public class BETSet {
 		}
 	}
 
+	/*
 	@Override
 	public int hashCode() {
 		return 0;
@@ -139,9 +139,10 @@ public class BETSet {
 
 	@Override
 	public boolean equals(Object obj) {
-		return true;
+		return false;
 	}
-
+	*/
+	
 	public Value getIntentProperty(Value val) {
 		return this.intentProps.get(val);
 	}

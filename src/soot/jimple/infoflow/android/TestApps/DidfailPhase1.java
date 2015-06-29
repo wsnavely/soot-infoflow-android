@@ -6,12 +6,14 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Scanner;
 import java.util.Set;
+
+import org.xmlpull.v1.XmlPullParserException;
 
 import soot.Body;
 import soot.PackManager;
@@ -24,6 +26,7 @@ import soot.Type;
 import soot.jimple.InvokeExpr;
 import soot.jimple.Stmt;
 import soot.jimple.infoflow.Infoflow;
+import soot.jimple.infoflow.android.SetupApplication;
 import soot.jimple.infoflow.handlers.PreAnalysisHandler;
 import soot.jimple.infoflow.results.InfoflowResults;
 import soot.jimple.infoflow.results.ResultSinkInfo;
@@ -35,14 +38,28 @@ import soot.jimple.internal.AbstractInvokeExpr;
 import soot.tagkit.Tag;
 import soot.toolkits.graph.ExceptionalUnitGraph;
 
+import com.beust.jcommander.JCommander;
+import com.beust.jcommander.Parameter;
+
 public class DidfailPhase1 {
-	public static String outFile = null;
+	static class DidfailArgs {
+		@Parameter
+		private List<String> parameters = new ArrayList<String>();
+
+		@Parameter(names = "-apk")
+		private String apk;
+
+		@Parameter(names = "-out")
+		private String outfile;
+
+		@Parameter(names = "-config")
+		private String config = "fd.json";
+	}
 
 	private static class DidfailPreprocessor implements PreAnalysisHandler {
 
 		@Override
 		public void onBeforeCallgraphConstruction() {
-			System.out.println("Didfail Before Callgraph");
 			PackManager
 					.v()
 					.getPack("wjap")
@@ -54,14 +71,17 @@ public class DidfailPhase1 {
 										Map<String, String> options) {
 									for (SootClass sc : Scene.v().getClasses()) {
 										for (SootMethod m : sc.getMethods()) {
-											try {
-												Body b = m.retrieveActiveBody();
-												new BooleanExpressionTagger(
-														new ExceptionalUnitGraph(
-																b));
-											} catch (Exception e) {
-												continue;
-											}
+											if (m.getName().equals(
+													"getDataFromIntent"))
+												try {
+													Body b = m
+															.retrieveActiveBody();
+													new BooleanExpressionTagger(
+															new ExceptionalUnitGraph(
+																	b));
+												} catch (Exception e) {
+													continue;
+												}
 										}
 									}
 								}
@@ -70,7 +90,6 @@ public class DidfailPhase1 {
 
 		@Override
 		public void onAfterCallgraphConstruction() {
-			System.out.println("Didfail After CallGraph");
 			PackManager.v().getPack("wjap").apply();
 		}
 	}
@@ -119,9 +138,9 @@ public class DidfailPhase1 {
 			if (sink.hasTag("BooleanExpressionTag")) {
 				Tag tag = sink.getTag("BooleanExpressionTag");
 				String value = new String(tag.getValue());
-				String[] items = value.split(";");
-				String expr = String.join(" AND ", items);
-				print(" cond=\"" + escapeXML(expr) + "\"");
+				System.out.println();
+				System.out.println(value);
+				print(" cond=\"" + escapeXML(value) + "\"");
 			}
 
 			println("></sink>");
@@ -322,52 +341,47 @@ public class DidfailPhase1 {
 		System.err.println("Usage: [<outfile>] -- <flowdroid arguments>");
 	}
 
-	private static boolean processDidfailArgs(String[] args) {
-		if (args.length == 1) {
-			outFile = args[0];
-			return true;
-		}
+	private static String readFile(String pathname) throws IOException {
+		File file = new File(pathname);
+		StringBuilder fileContents = new StringBuilder((int) file.length());
+		Scanner scanner = new Scanner(file);
+		String lineSeparator = System.getProperty("line.separator");
 
-		return false;
+		try {
+			while (scanner.hasNextLine()) {
+				fileContents.append(scanner.nextLine() + lineSeparator);
+			}
+			return fileContents.toString();
+		} finally {
+			scanner.close();
+		}
 	}
 
 	public static void main(final String[] args) throws IOException,
-			InterruptedException {
+			InterruptedException, XmlPullParserException {
 
-		String[] didfailArgs = {};
-		String[] fdArgs = {};
+		DidfailArgs jct = new DidfailArgs();
+		new JCommander(jct, args);
 
-		int split = -1;
-		for (int ii = 0; ii < args.length; ii++) {
-			if (args[ii].equals("--")) {
-				split = ii;
-				break;
-			}
-		}
-		didfailArgs = args;
+		FlowDroidFactory factory = new FlowDroidFactory();
+		SetupApplication app = factory.fromJson(readFile(jct.config), jct.apk);
 
-		if (split != -1) {
-			didfailArgs = Arrays.copyOfRange(args, 0, split);
-			fdArgs = Arrays.copyOfRange(args, split + 1, args.length);
-		}
+		// Add a preprocessing step
+		List<PreAnalysisHandler> preprocessors = new ArrayList<PreAnalysisHandler>();
+		preprocessors.add(new DidfailPreprocessor());
+		app.setPreprocessors(preprocessors);
 
-		if (!processDidfailArgs(didfailArgs)) {
-			usage();
-			System.exit(1);
+		BufferedWriter bw = null;
+		if (jct.outfile != null && !jct.outfile.isEmpty()) {
+			File out = new File(jct.outfile);
+			bw = new BufferedWriter(new FileWriter(out));
 		}
 
-		DidfailResultHandler handler;
-		if (outFile != null) {
-			File out = new File(outFile);
-			FileWriter fw = new FileWriter(out);
-			BufferedWriter bw = new BufferedWriter(fw);
-			handler = new DidfailResultHandler(bw);
-			handler = new DidfailResultHandler(bw);
-		} else {
-			handler = new DidfailResultHandler();
-		}
-
-		FlowDroid.preprocessors.add(new DidfailPreprocessor());
-		FlowDroid.run(fdArgs, handler);
+		// Create the result handler
+		DidfailResultHandler handler = new DidfailResultHandler(bw);
+		String pkg = app.getSourceSinkManager().getAppPackageName();
+		handler.setAppPackage(pkg);
+		
+		app.runInfoflow(handler);
 	}
 }

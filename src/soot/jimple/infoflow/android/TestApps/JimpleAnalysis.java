@@ -2,6 +2,9 @@ package soot.jimple.infoflow.android.TestApps;
 
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import soot.Unit;
 import soot.jimple.AssignStmt;
 import soot.jimple.EnterMonitorStmt;
@@ -24,6 +27,8 @@ import soot.toolkits.scalar.ForwardBranchedFlowAnalysis;
 
 public abstract class JimpleAnalysis extends
 		ForwardBranchedFlowAnalysis<BETSet> {
+	
+    private final Logger logger = LoggerFactory.getLogger(getClass());
 
 	public JimpleAnalysis(UnitGraph graph) {
 		super(graph);
@@ -93,6 +98,8 @@ public abstract class JimpleAnalysis extends
 	@Override
 	protected void flowThrough(BETSet in, Unit stmt, List<BETSet> fallOut,
 			List<BETSet> branchOuts) {
+		System.out.println(stmt);
+		
 		for(BETSet s : fallOut) {
 			in.copy(s);
 		}
@@ -101,7 +108,8 @@ public abstract class JimpleAnalysis extends
 		}
 		
 		if(in.booleanExpression.length() > 0) {
-			System.out.println("ADDING TAG: " + stmt);
+			logger.info("Tagging statement: " + stmt);
+			System.out.println("Has Tag:" + stmt.hasTag("BooleanExpressionTag"));
 			stmt.addTag(new Tag() {
 				@Override
 				public byte[] getValue() throws AttributeValueException {
@@ -112,7 +120,6 @@ public abstract class JimpleAnalysis extends
 					return "BooleanExpressionTag";
 				}
 			});
-			System.out.println(stmt.hasTag("BooleanExpressionTag"));
 		}
 		if (stmt instanceof NopStmt) {
 			flowThroughNop(in, (NopStmt) stmt, fallOut, branchOuts);

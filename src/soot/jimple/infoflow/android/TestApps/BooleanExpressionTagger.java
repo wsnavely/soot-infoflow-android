@@ -4,8 +4,12 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import javax.swing.text.StyledEditorKit.BoldAction;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.sun.javafx.binding.Logging;
 
 import soot.SootClass;
 import soot.SootMethod;
@@ -23,8 +27,8 @@ import soot.toolkits.graph.UnitGraph;
 
 public class BooleanExpressionTagger extends JimpleAnalysis {
 
-    private final Logger logger = LoggerFactory.getLogger(getClass());
-    
+	private final Logger logger = LoggerFactory.getLogger(getClass());
+
 	private AktFlowProcessor fp;
 
 	public BooleanExpressionTagger(UnitGraph graph) {
@@ -52,7 +56,7 @@ public class BooleanExpressionTagger extends JimpleAnalysis {
 		} else if (stmt.containsInvokeExpr()) {
 			InvokeExpr ie = stmt.getInvokeExpr();
 			SootMethod sm = ie.getMethod();
-			
+
 			if (fp.isIntentPropertyGetter(sm)) {
 				out.addIntentProperty(left, ie);
 				logger.info("[AKTION][INTENTSRC] " + stmt);
@@ -72,37 +76,37 @@ public class BooleanExpressionTagger extends JimpleAnalysis {
 	}
 
 	@Override
-	protected void flowThroughIf(BETSet in, IfStmt stmt, List<BETSet> fallOut, List<BETSet> branchOuts) {
+	protected void flowThroughIf(BETSet in, IfStmt stmt, List<BETSet> fallOut,
+			List<BETSet> branchOuts) {
 		Value cond = stmt.getCondition();
 
 		if (cond instanceof JEqExpr || cond instanceof JNeExpr) {
 			AbstractBinopExpr eq = (AbstractBinopExpr) cond;
 			Value left = eq.getOp1();
 			Value right = eq.getOp2();
-			Comparison<Value, Value> cmp;
+			Value other = null;
+			Comparison<Value, Value> cmp = null;
 			String op = cond instanceof JEqExpr ? "==" : "!=";
 			String opNeg = cond instanceof JEqExpr ? "!=" : "==";
-			
+
 			if (in.isIntentPropertyCmp(left)) {
-				logger.info("[AKTION][BRANCH] " + stmt);
 				cmp = in.getIntentPropertyCmp(left);
-				String expr = String.format("E(%s, %s) %s %s;", fmt(cmp.x),
-						fmt(cmp.y), op, fmt(right));
-				String exprNeg = String.format("E(%s, %s) %s %s;", fmt(cmp.x),
-						fmt(cmp.y), opNeg, fmt(right));
-				System.out.println(expr);
-				fallOut.get(0).booleanExpression += exprNeg;
-				branchOuts.get(0).booleanExpression += expr;
-			} else if (in.isIntentPropertyCmp(right)) {
-				cmp = in.getIntentPropertyCmp(right);
-				System.out.printf("E(%s, %s, %s) %s %s\n", fmt(cmp.x),
-						fmt(cmp.y), cmp.isConstantComp, op, fmt(left));
-			} else if (in.isIntentProperty(left)) {
-				Value ip = in.getIntentProperty(left);
-				System.out.printf("%s %s %s\n", fmt(ip), op, fmt(right));
+				other = right;
 			} else if (in.isIntentProperty(right)) {
-				Value ip = in.getIntentProperty(right);
-				System.out.printf("%s %s %s\n", fmt(ip), op, fmt(left));
+				cmp = in.getIntentPropertyCmp(right);
+				other = left;
+			}
+
+			if (cmp != null) {
+				logger.info("[AKTION][BRANCH] " + stmt);
+				String expr = String.format("E(%s, %s) %s %s", fmt(cmp.x),
+						fmt(cmp.y), op, fmt(other));
+				String exprNeg = String.format("E(%s, %s) %s %s", fmt(cmp.x),
+						fmt(cmp.y), opNeg, fmt(other));
+				String fallBET = BooleanExpression.and(in.booleanExpression,exprNeg);
+				String branchBET = BooleanExpression.and(branchOuts.get(0).booleanExpression,expr);
+				fallOut.get(0).booleanExpression = fallBET;
+				branchOuts.get(0).booleanExpression = branchBET;
 			}
 		}
 	}
