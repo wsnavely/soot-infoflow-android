@@ -6,6 +6,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -71,12 +72,12 @@ public class DidfailPhase1 {
 										Map<String, String> options) {
 									for (SootClass sc : Scene.v().getClasses()) {
 										for (SootMethod m : sc.getMethods()) {
-											if (m.getName().equals(
+											if (m.getName().startsWith(
 													"getDataFromIntent"))
 												try {
 													Body b = m
 															.retrieveActiveBody();
-													new BooleanExpressionTagger(
+													new Simple(
 															new ExceptionalUnitGraph(
 																	b));
 												} catch (Exception e) {
@@ -139,7 +140,7 @@ public class DidfailPhase1 {
 				Tag tag = sink.getTag("BooleanExpressionTag");
 				String value = new String(tag.getValue());
 				System.out.println();
-				System.out.println(value);
+				System.out.println(sink);
 				print(" cond=\"" + escapeXML(value) + "\"");
 			}
 
@@ -229,6 +230,7 @@ public class DidfailPhase1 {
 			printf("<results package=\"%s\">\n", pkg);
 			for (ResultSinkInfo sinkInfo : sinks) {
 				println("<flow>");
+				System.out.println("SINK " + sinkInfo.getSink());
 				handleSink(sinkInfo, cfg, results);
 
 				// Sort the sourcesO
@@ -238,6 +240,8 @@ public class DidfailPhase1 {
 				Collections.sort(srcs, sourceSorter);
 
 				for (ResultSourceInfo srcInfo : srcs) {
+
+					System.out.println("SOURCE " + srcInfo.getSource());
 					handleSource(srcInfo, cfg, results);
 				}
 				println("</flow>");
@@ -381,7 +385,7 @@ public class DidfailPhase1 {
 		DidfailResultHandler handler = new DidfailResultHandler(bw);
 		String pkg = app.getSourceSinkManager().getAppPackageName();
 		handler.setAppPackage(pkg);
-		
+
 		app.runInfoflow(handler);
 	}
 }

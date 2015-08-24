@@ -1,8 +1,12 @@
 package soot.jimple.infoflow.android.TestApps;
 
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Set;
 
 import soot.Value;
+import soot.ValueBox;
+import soot.jimple.InvokeExpr;
 import soot.jimple.StringConstant;
 import soot.jimple.internal.JInstanceFieldRef;
 
@@ -31,12 +35,12 @@ public class BETSet {
 		booleanExpression = "";
 	}
 
-	public void addIntentProperty(Value left, Value right) {
+	public void addIntentPropertySource(Value left, InvokeExpr ie) {
 		if (left instanceof JInstanceFieldRef) {
 			JInstanceFieldRef jifr = (JInstanceFieldRef) left;
 			left = jifr.getBase();
 		}
-		intentProps.put(left, right);
+		intentProps.put(left, ie);
 	}
 
 	public Comparison<Value, Value> getIntentPropertyCmp(Value local) {
@@ -83,8 +87,8 @@ public class BETSet {
 		out.clear();
 		if (this.booleanExpression.length() > 0
 				|| other.booleanExpression.length() > 0) {
-			out.booleanExpression = BooleanExpression.or(
-					this.booleanExpression, other.booleanExpression);
+			out.booleanExpression = BoolExpr.or(this.booleanExpression,
+					other.booleanExpression);
 		}
 
 		out.intentProps.putAll(this.intentProps);
@@ -131,7 +135,6 @@ public class BETSet {
 		}
 	}
 
-	/*
 	@Override
 	public int hashCode() {
 		return 0;
@@ -141,8 +144,7 @@ public class BETSet {
 	public boolean equals(Object obj) {
 		return false;
 	}
-	*/
-	
+
 	public Value getIntentProperty(Value val) {
 		return this.intentProps.get(val);
 	}

@@ -2,19 +2,18 @@ package soot.jimple.infoflow.android.TestApps;
 
 import soot.SootClass;
 import soot.SootMethod;
+import soot.Value;
 
-public class AndroidFlowProcessor extends AktFlowProcessor {
+public class AndroidIntentOracle implements IntentOracle {
+	
 	@Override
-	public boolean isIntentPropertyGetter(SootMethod sm) {
+	public boolean isGetAction(SootMethod sm) {
 		SootClass sc = sm.getDeclaringClass();
 		String className = sc.getName();
 		String methodName = sm.getName();
 
 		if (className.equals("android.content.Intent")) {
 			if (methodName.equals("getAction")) {
-				return true;
-			}
-			if(methodName.startsWith("get")) {
 				return true;
 			}
 		}
@@ -32,5 +31,10 @@ public class AndroidFlowProcessor extends AktFlowProcessor {
 			}
 		}
 		return false;
+	}
+
+	@Override
+	public boolean isIntentType(Value v) {
+		return v.getType().toString().equals("android.content.Intent");
 	}
 }
