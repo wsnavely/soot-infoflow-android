@@ -1,0 +1,18 @@
+{
+  "stopAfterFirstFlow": false,
+  "implicitFlows": false,
+  "staticTracking": false,
+  "enableCallbacks": true,
+  "enableExceptions": true,
+  "flowSensitiveAliasing": false,
+  "computeResultPaths": true,
+  "aggressiveTaintWrapper": true,
+  "sourcesAndSinksFile": "SourcesAndSinks.txt",
+  "taintWrapperFile": "EasyTaintWrapperSource.txt",
+  "androidPlatformsFolder": "C:\Users\wsnav_000\AppData\Local\Android\sdk\platforms",
+  "accessPathLength": 1,
+  "pathBuilder": "ContextInsensitiveSourceFinder",
+  "callgraphAlgorithm": "AutomaticSelection",
+  "layoutMatchingMode": "MatchSensitiveOnly"
+ }
+
