@@ -77,9 +77,9 @@ public class DidfailPhase1 {
 												try {
 													Body b = m
 															.retrieveActiveBody();
-													new Simple(
-															new ExceptionalUnitGraph(
-																	b));
+													//new Simple(
+													//		new ExceptionalUnitGraph(
+													//				b));
 												} catch (Exception e) {
 													continue;
 												}
