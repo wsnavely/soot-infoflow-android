@@ -10,7 +10,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 import soot.SootClass;
@@ -26,6 +25,7 @@ import soot.jimple.infoflow.solver.cfg.IInfoflowCFG;
 import soot.jimple.infoflow.util.IntentTag;
 import soot.jimple.internal.AbstractInstanceInvokeExpr;
 import soot.jimple.internal.AbstractInvokeExpr;
+import soot.util.MultiMap;
 
 public class DidfailPhase1 {
 	private static final class DidfailResultHandler extends
@@ -137,7 +137,7 @@ public class DidfailPhase1 {
 				return;
 			}
 
-			Map<ResultSinkInfo, Set<ResultSourceInfo>> resultInfos;
+			MultiMap<ResultSinkInfo, ResultSourceInfo> resultInfos;
 			resultInfos = results.getResults();
 			Comparator<ResultSinkInfo> sinkSorter = new SinkComparator();
 			Comparator<ResultSourceInfo> sourceSorter = new SourceComparator();
