@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 bin
 /JimpleFiles
 /sootOutput
@@ -7,13 +6,3 @@ bin
 /reports
 /insecureBank/InsecureBank
 /out.log
-=======
-*.iml
-bin
-target
-/JimpleFiles
-/sootOutput
-/ant.settings
-reports
-/build
->>>>>>> 8fe20fc1455336cce8dc9d61f8f17fade36e3279
