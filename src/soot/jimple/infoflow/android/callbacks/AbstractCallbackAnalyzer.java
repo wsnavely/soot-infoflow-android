@@ -8,50 +8,45 @@
  * Contributors: Christian Fritz, Steven Arzt, Siegfried Rasthofer, Eric
  * Bodden, and others.
  ******************************************************************************/
-package soot.jimple.infoflow.android;
+package soot.jimple.infoflow.android.callbacks;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import soot.Body;
 import soot.Local;
-import soot.MethodOrMethodContext;
-import soot.PackManager;
 import soot.RefType;
 import soot.Scene;
-import soot.SceneTransformer;
 import soot.SootClass;
 import soot.SootMethod;
-import soot.Transform;
 import soot.Type;
 import soot.Unit;
 import soot.Value;
 import soot.jimple.DefinitionStmt;
 import soot.jimple.IdentityStmt;
 import soot.jimple.InstanceInvokeExpr;
-import soot.jimple.IntConstant;
 import soot.jimple.InvokeExpr;
 import soot.jimple.ReturnVoidStmt;
 import soot.jimple.Stmt;
+import soot.jimple.infoflow.android.InfoflowAndroidConfiguration;
 import soot.jimple.infoflow.android.data.AndroidMethod;
 import soot.jimple.infoflow.data.SootMethodAndClass;
 import soot.jimple.infoflow.util.SootMethodRepresentationParser;
-import soot.jimple.toolkits.callgraph.ReachableMethods;
+import soot.jimple.infoflow.util.SystemClassHandler;
+import soot.jimple.toolkits.callgraph.Edge;
 import soot.toolkits.graph.ExceptionalUnitGraph;
 import soot.toolkits.scalar.SimpleLiveLocals;
 import soot.toolkits.scalar.SmartLocalDefs;
-import soot.util.HashMultiMap;
-import soot.util.MultiMap;
 
 /**
  * Analyzes the classes in the APK file to find custom implementations of the
@@ -60,36 +55,54 @@ import soot.util.MultiMap;
  * @author Steven Arzt
  *
  */
-public class AnalyzeJimpleClass {
+public abstract class AbstractCallbackAnalyzer {
 
-	private final Set<String> entryPointClasses;
-	private final Set<String> androidCallbacks;
-	private final Map<String, Set<SootMethodAndClass>> callbackMethods = new HashMap<String, Set<SootMethodAndClass>>();
-	private final Map<String, Set<SootMethodAndClass>> callbackWorklist = new HashMap<String, Set<SootMethodAndClass>>();
-	private final Map<String, Set<Integer>> layoutClasses = new HashMap<String, Set<Integer>>();
-
-	public AnalyzeJimpleClass(Set<String> entryPointClasses) throws IOException {
+	protected final Logger logger = LoggerFactory.getLogger(getClass());
+	
+	protected final InfoflowAndroidConfiguration config;
+	protected final Set<String> entryPointClasses;
+	protected final Set<String> androidCallbacks;
+	
+	protected final Map<String, Set<SootMethodAndClass>> callbackMethods =
+			new HashMap<String, Set<SootMethodAndClass>>();
+	protected final Map<String, Set<Integer>> layoutClasses =
+			new HashMap<String, Set<Integer>>();
+	protected final Set<String> dynamicManifestComponents =
+			new HashSet<>();
+	
+	public AbstractCallbackAnalyzer(InfoflowAndroidConfiguration config,
+			Set<String> entryPointClasses) throws IOException {
+		this(config, entryPointClasses, "AndroidCallbacks.txt");
+	}
+	
+	public AbstractCallbackAnalyzer(InfoflowAndroidConfiguration config,
+			Set<String> entryPointClasses,
+			String callbackFile) throws IOException {
+		this.config = config;
 		this.entryPointClasses = entryPointClasses;
-		this.androidCallbacks = loadAndroidCallbacks();
+		this.androidCallbacks = loadAndroidCallbacks(callbackFile);
 	}
 
-	public AnalyzeJimpleClass(Set<String> entryPointClasses,
-			Set<String> androidCallbacks) {
+	public AbstractCallbackAnalyzer(InfoflowAndroidConfiguration config,
+			Set<String> entryPointClasses,
+			Set<String> androidCallbacks) throws IOException {
+		this.config = config;
 		this.entryPointClasses = entryPointClasses;
-		this.androidCallbacks = new HashSet<String>();
+		this.androidCallbacks = androidCallbacks;
 	}
-
+	
 	/**
 	 * Loads the set of interfaces that are used to implement Android callback
 	 * handlers from a file on disk
+	 * @param androidCallbackFile The file from which to load the callback definitions
 	 * @return A set containing the names of the interfaces that are used to
 	 * implement Android callback handlers
 	 */
-	private Set<String> loadAndroidCallbacks() throws IOException {
+	private Set<String> loadAndroidCallbacks(String androidCallbackFile) throws IOException {
 		Set<String> androidCallbacks = new HashSet<String>();
 		BufferedReader rdr = null;
 		try {
-			String fileName = "AndroidCallbacks.txt";
+			String fileName = androidCallbackFile;
 			if (!new File(fileName).exists()) {
 				fileName = "../soot-infoflow-android/AndroidCallbacks.txt";
 				if (!new File(fileName).exists())
@@ -111,81 +124,23 @@ public class AnalyzeJimpleClass {
 	/**
 	 * Collects the callback methods for all Android default handlers
 	 * implemented in the source code.
-	 * Note that this operation runs inside Soot, so this method only registers
-	 * a new phase that will be executed when Soot is next run
 	 */
-	public void collectCallbackMethods() {
-		Transform transform = new Transform("wjtp.ajc", new SceneTransformer() {
-			protected void internalTransform(String phaseName, @SuppressWarnings("rawtypes") Map options) {
-				// Find the mappings between classes and layouts
-				findClassLayoutMappings();
-
-				// Process the callback classes directly reachable from the
-				// entry points
-				for (String className : entryPointClasses) {
-					SootClass sc = Scene.v().getSootClass(className);
-					List<MethodOrMethodContext> methods = new ArrayList<MethodOrMethodContext>();
-					methods.addAll(sc.getMethods());
-					
-					// Check for callbacks registered in the code
-					analyzeRechableMethods(sc, methods);
-
-					// Check for method overrides
-					analyzeMethodOverrideCallbacks(sc);
-				}
-				System.out.println("Callback analysis done.");
-			}
-		});
-		PackManager.v().getPack("wjtp").add(transform);
-	}
+	public abstract void collectCallbackMethods();
 	
 	/**
-	 * Incrementally collects the callback methods for all Android default
-	 * handlers implemented in the source code. This just processes the contents
-	 * of the worklist.
-	 * Note that this operation runs inside Soot, so this method only registers
-	 * a new phase that will be executed when Soot is next run
+	 * Collects the callback methods that have been added since the last run.
+	 * The semantics of this method depends on the concrete implementation. For
+	 * non-incremental analyses, this method does nothing.
 	 */
-	public void collectCallbackMethodsIncremental() {
-		Transform transform = new Transform("wjtp.ajc", new SceneTransformer() {
-			protected void internalTransform(String phaseName, @SuppressWarnings("rawtypes") Map options) {
-				// Process the worklist from last time
-				System.out.println("Running incremental callback analysis for " + callbackWorklist.size()
-						+ " components...");
-				MultiMap<String, SootMethodAndClass> workListCopy =
-						new HashMultiMap<String, SootMethodAndClass>(callbackWorklist);
-				for (String className : workListCopy.keySet()) {
-					List<MethodOrMethodContext> entryClasses = new LinkedList<MethodOrMethodContext>();
-					for (SootMethodAndClass am : workListCopy.get(className))
-						entryClasses.add(Scene.v().getMethod(am.getSignature()));
-					analyzeRechableMethods(Scene.v().getSootClass(className), entryClasses);
-					callbackWorklist.remove(className);
-				}
-				System.out.println("Incremental callback analysis done.");
-			}
-		});
-		PackManager.v().getPack("wjtp").add(transform);
-	}
-
-	private void analyzeRechableMethods(SootClass lifecycleElement, List<MethodOrMethodContext> methods) {
-		ReachableMethods rm = new ReachableMethods(Scene.v().getCallGraph(), methods);
-		rm.update();
-
-		// Scan for listeners in the class hierarchy
-		Iterator<MethodOrMethodContext> reachableMethods = rm.listener();
-		while (reachableMethods.hasNext()) {
-			SootMethod method = reachableMethods.next().method();
-			analyzeMethodForCallbackRegistrations(lifecycleElement, method);
-		}
-	}
-
+	public abstract void collectCallbackMethodsIncremental();
+	
 	/**
 	 * Analyzes the given method and looks for callback registrations
 	 * @param lifecycleElement The lifecycle element (activity, etc.) with which
 	 * to associate the found callbacks
 	 * @param method The method in which to look for callbacks
 	 */
-	private void analyzeMethodForCallbackRegistrations(SootClass lifecycleElement, SootMethod method) {
+	protected void analyzeMethodForCallbackRegistrations(SootClass lifecycleElement, SootMethod method) {
 		// Do not analyze system classes
 		if (method.getDeclaringClass().getName().startsWith("android.")
 				|| method.getDeclaringClass().getName().startsWith("java."))
@@ -238,46 +193,73 @@ public class AnalyzeJimpleClass {
 		for (SootClass callbackClass : callbackClasses)
 			analyzeClass(callbackClass, lifecycleElement);
 	}
-
+	
 	/**
-	 * Finds the mappings between classes and their respective layout files
+	 * Checks whether the given method dynamically registers a new broadcast
+	 * receiver
+	 * @param method The method to check
 	 */
-	private void findClassLayoutMappings() {
-		Iterator<MethodOrMethodContext> rmIterator = Scene.v().getReachableMethods().listener();
-		while (rmIterator.hasNext()) {
-			SootMethod sm = rmIterator.next().method();
-			if (!sm.isConcrete())
-				continue;
-			
-			for (Unit u : sm.retrieveActiveBody().getUnits())
-				if (u instanceof Stmt) {
-					Stmt stmt = (Stmt) u;
-					if (stmt.containsInvokeExpr()) {
-						InvokeExpr inv = stmt.getInvokeExpr();
-						if (invokesSetContentView(inv)) {
-							for (Value val : inv.getArgs())
-								if (val instanceof IntConstant) {
-									IntConstant constVal = (IntConstant) val;
-									Set<Integer> layoutIDs = this.layoutClasses.get(sm.getDeclaringClass().getName());
-									if (layoutIDs == null) {
-										layoutIDs = new HashSet<Integer>();
-										this.layoutClasses.put(sm.getDeclaringClass().getName(), layoutIDs);
-									}
-									layoutIDs.add(constVal.value);
-								}
-						}
+	protected void analyzeMethodForDynamicBroadcastReceiver(SootMethod method) {
+		if (!method.isConcrete() || !method.hasActiveBody())
+			return;
+		// stmt.getInvokeExpr().getMethod().getDeclaringClass().getName().equals("android.content.Context")
+		
+		for (Unit u : method.getActiveBody().getUnits()) {
+			Stmt stmt = (Stmt) u;
+			if (stmt.containsInvokeExpr()) {
+				if (stmt.getInvokeExpr().getMethod().getName().equals("registerReceiver")
+						&& stmt.getInvokeExpr().getArgCount() > 0
+						&& isInheritedMethod(stmt, "android.content.ContextWrapper",
+								"android.content.Context")) {
+					Value br = stmt.getInvokeExpr().getArg(0);
+					if (br.getType() instanceof RefType) {
+						RefType rt = (RefType) br.getType();
+						dynamicManifestComponents.add(rt.getClassName());
 					}
 				}
+			}
 		}
 	}
 	
+	/**
+	 * Gets whether the call in the given statement can end up in the respective method
+	 * inherited from one of the given classes.
+	 * @param stmt The statement containing the call sites
+	 * @param classNames The base classes in which the call can potentially end up
+	 * @return True if the given call can end up in a method inherited from one of
+	 * the given classes, otherwise falae
+	 */
+	private boolean isInheritedMethod(Stmt stmt, String... classNames) {
+		if (!stmt.containsInvokeExpr())
+			return false;
+		
+		// Look at the direct callee
+		SootMethod tgt = stmt.getInvokeExpr().getMethod();
+		for (String className : classNames)
+			if (className.equals(tgt.getDeclaringClass().getName()))
+				return true;
+
+		// If we have a callgraph, we can use that.
+		if (Scene.v().hasCallGraph()) {
+			Iterator<Edge> edgeIt = Scene.v().getCallGraph().edgesOutOf(stmt);
+			while (edgeIt.hasNext()) {
+				Edge edge = edgeIt.next();
+				String targetClass = edge.getTgt().method().getDeclaringClass().getName();
+				for (String className : classNames)
+					if (className.equals(targetClass))
+						return true;
+			}
+		}
+		return false;
+	}
+
 	/**
 	 * Checks whether this invocation calls Android's Activity.setContentView
 	 * method
 	 * @param inv The invocaton to check
 	 * @return True if this invocation calls setContentView, otherwise false
 	 */
-	private boolean invokesSetContentView(InvokeExpr inv) {
+	protected boolean invokesSetContentView(InvokeExpr inv) {
 		String methodName = SootMethodRepresentationParser.v().getMethodNameFromSubSignature(
 				inv.getMethodRef().getSubSignature().getString());
 		if (!methodName.equals("setContentView"))
@@ -314,14 +296,15 @@ public class AnalyzeJimpleClass {
 		analyzeClassInterfaceCallbacks(sootClass, sootClass, lifecycleElement);
 	}
 	
-	private void analyzeMethodOverrideCallbacks(SootClass sootClass) {
+	protected void analyzeMethodOverrideCallbacks(SootClass sootClass) {
 		if (!sootClass.isConcrete())
 			return;
 		if (sootClass.isInterface())
 			return;
 		
 		// Do not start the search in system classes
-		if (sootClass.getName().startsWith("android."))
+		if (config.getIgnoreFlowsInSystemPackages()
+				&& SystemClassHandler.isClassInSystemPackage(sootClass.getName()))
 			return;
 		
 		// There are also some classes that implement interesting callback methods.
@@ -329,7 +312,7 @@ public class AnalyzeJimpleClass {
 		// Android OS class, we treat it as a potential callback.
 		Set<String> systemMethods = new HashSet<String>(10000);
 		for (SootClass parentClass : Scene.v().getActiveHierarchy().getSuperclassesOf(sootClass)) {
-			if (parentClass.getName().startsWith("android."))
+			if (SystemClassHandler.isClassInSystemPackage(parentClass.getName()))
 				for (SootMethod sm : parentClass.getMethods())
 					if (!sm.isConstructor())
 						systemMethods.add(sm.getSubSignature());
@@ -379,7 +362,8 @@ public class AnalyzeJimpleClass {
 		for (SootClass i : collectAllInterfaces(sootClass)) {
 			if (androidCallbacks.contains(i.getName()))
 				for (SootMethod sm : i.getMethods())
-					checkAndAddMethod(getMethodFromHierarchyEx(baseClass, sm.getSubSignature()), lifecycleElement);
+					checkAndAddMethod(getMethodFromHierarchyEx(baseClass,
+							sm.getSubSignature()), lifecycleElement);
 		}
 	}
 
@@ -389,36 +373,28 @@ public class AnalyzeJimpleClass {
 	 * @param method The method to check and add
 	 * @param baseClass The base class (activity, service, etc.) to which this
 	 * callback method belongs
+	 * @return True if the method is new, i.e., has not been seen before, otherwise
+	 * false
 	 */
-	private void checkAndAddMethod(SootMethod method, SootClass baseClass) {
+	protected boolean checkAndAddMethod(SootMethod method, SootClass baseClass) {
 		AndroidMethod am = new AndroidMethod(method);
 		
 		// Do not call system methods
 		if (am.getClassName().startsWith("android.")
 				|| am.getClassName().startsWith("java."))
-			return;
+			return false;
 
 		// Skip empty methods
 		if (method.isConcrete() && isEmpty(method.retrieveActiveBody()))
-			return;
-			
-		boolean isNew;
-		if (this.callbackMethods.containsKey(baseClass.getName()))
-			isNew = this.callbackMethods.get(baseClass.getName()).add(am);
-		else {
-			Set<SootMethodAndClass> methods = new HashSet<SootMethodAndClass>();
-			isNew = methods.add(am);
-			this.callbackMethods.put(baseClass.getName(), methods);
+			return false;
+		
+		String componentName = baseClass == null ? "" : baseClass.getName();
+		Set<SootMethodAndClass> methods = this.callbackMethods.get(componentName);
+		if (methods == null) {
+			methods = new HashSet<SootMethodAndClass>();
+			this.callbackMethods.put(componentName, methods);
 		}
-			
-		if (isNew)
-			if (this.callbackWorklist.containsKey(baseClass.getName()))
-					this.callbackWorklist.get(baseClass.getName()).add(am);
-			else {
-				Set<SootMethodAndClass> methods = new HashSet<SootMethodAndClass>();
-				isNew = methods.add(am);
-				this.callbackWorklist.put(baseClass.getName(), methods);
-			}
+		return methods.add(am);
 	}
 
 	private boolean isEmpty(Body activeBody) {
@@ -441,6 +417,10 @@ public class AnalyzeJimpleClass {
 	
 	public Map<String, Set<Integer>> getLayoutClasses() {
 		return this.layoutClasses;
+	}
+	
+	public Set<String> getDynamicManifestComponents() {
+		return this.dynamicManifestComponents;
 	}
 		
 }

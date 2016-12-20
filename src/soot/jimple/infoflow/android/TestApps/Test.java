@@ -13,13 +13,17 @@ package soot.jimple.infoflow.android.TestApps;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.FilenameFilter;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -28,21 +32,32 @@ import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+import javax.xml.stream.XMLStreamException;
+
 import org.xmlpull.v1.XmlPullParserException;
 
-import soot.jimple.infoflow.IInfoflow.CallgraphAlgorithm;
+import soot.SootMethod;
+import soot.jimple.Stmt;
+import soot.jimple.infoflow.InfoflowConfiguration.CallgraphAlgorithm;
+import soot.jimple.infoflow.InfoflowManager;
+import soot.jimple.infoflow.android.InfoflowAndroidConfiguration;
+import soot.jimple.infoflow.android.InfoflowAndroidConfiguration.CallbackAnalyzer;
 import soot.jimple.infoflow.android.SetupApplication;
 import soot.jimple.infoflow.android.source.AndroidSourceSinkManager.LayoutMatchingMode;
+import soot.jimple.infoflow.config.IInfoflowConfig;
+import soot.jimple.infoflow.data.Abstraction;
 import soot.jimple.infoflow.data.pathBuilders.DefaultPathBuilderFactory.PathBuilder;
 import soot.jimple.infoflow.handlers.ResultsAvailableHandler;
 import soot.jimple.infoflow.ipc.IIPCManager;
 import soot.jimple.infoflow.results.InfoflowResults;
 import soot.jimple.infoflow.results.ResultSinkInfo;
 import soot.jimple.infoflow.results.ResultSourceInfo;
+import soot.jimple.infoflow.results.xml.InfoflowResultsSerializer;
 import soot.jimple.infoflow.solver.cfg.IInfoflowCFG;
 import soot.jimple.infoflow.taintWrappers.EasyTaintWrapper;
 import soot.jimple.infoflow.taintWrappers.ITaintPropagationWrapper;
-import soot.jimple.infoflow.taintWrappers.TaintWrapperSet;
+import soot.jimple.infoflow.util.SystemClassHandler;
+import soot.options.Options;
 
 public class Test {
 	
@@ -66,16 +81,35 @@ public class Test {
 				print("No results found.");
 			}
 			else {
+				// Report the results
 				for (ResultSinkInfo sink : results.getResults().keySet()) {
 					print("Found a flow to sink " + sink + ", from the following sources:");
 					for (ResultSourceInfo source : results.getResults().get(sink)) {
 						print("\t- " + source.getSource() + " (in "
 								+ cfg.getMethodOf(source.getSource()).getSignature()  + ")");
-						if (source.getPath() != null && !source.getPath().isEmpty())
-							print("\t\ton Path " + source.getPath());
+						if (source.getPath() != null)
+							print("\t\ton Path " + Arrays.toString(source.getPath()));
+					}
+				}
+				
+				// Serialize the results if requested
+				// Write the results into a file if requested
+				if (resultFilePath != null && !resultFilePath.isEmpty()) {
+					InfoflowResultsSerializer serializer = new InfoflowResultsSerializer(cfg);
+					try {
+						serializer.serialize(results, resultFilePath);
+					} catch (FileNotFoundException ex) {
+						System.err.println("Could not write data flow results to file: " + ex.getMessage());
+						ex.printStackTrace();
+						throw new RuntimeException(ex);
+					} catch (XMLStreamException ex) {
+						System.err.println("Could not write data flow results to file: " + ex.getMessage());
+						ex.printStackTrace();
+						throw new RuntimeException(ex);
 					}
 				}
 			}
+			
 		}
 
 		private void print(String string) {
@@ -90,27 +124,16 @@ public class Test {
 		}
 	}
 	
-	static String command;
-	static boolean generate = false;
+	private static InfoflowAndroidConfiguration config = new InfoflowAndroidConfiguration();
 	
+	private static int repeatCount = 1;
 	private static int timeout = -1;
 	private static int sysTimeout = -1;
 	
-	private static boolean stopAfterFirstFlow = false;
-	private static boolean implicitFlows = false;
-	private static boolean staticTracking = true;
-	private static boolean enableCallbacks = true;
-	private static boolean enableExceptions = true;
-	private static int accessPathLength = 5;
-	private static LayoutMatchingMode layoutMatchingMode = LayoutMatchingMode.MatchSensitiveOnly;
-	private static boolean flowSensitiveAliasing = true;
-	private static boolean computeResultPaths = true;
 	private static boolean aggressiveTaintWrapper = false;
-	private static boolean librarySummaryTaintWrapper = false;
+	private static boolean noTaintWrapper = false;
 	private static String summaryPath = "";
-	private static PathBuilder pathBuilder = PathBuilder.ContextInsensitiveSourceFinder;
-	
-	private static CallgraphAlgorithm callgraphAlgorithm = CallgraphAlgorithm.AutomaticSelection;
+	private static String resultFilePath = "";
 	
 	private static boolean DEBUG = false;
 
@@ -151,6 +174,8 @@ public class Test {
 			return;
 		if (!validateAdditionalOptions())
 			return;
+		if (repeatCount <= 0)
+			return;
 		
 		List<String> apkFiles = new ArrayList<String>();
 		File apkFile = new File(args[0]);
@@ -182,9 +207,12 @@ public class Test {
 				return;
 			}
 		}
-
+		
+		int oldRepeatCount = repeatCount;
 		for (final String fileName : apkFiles) {
+			repeatCount = oldRepeatCount;
 			final String fullFilePath;
+			System.gc();
 			
 			// Directory handling
 			if (apkFiles.size() > 1) {
@@ -202,18 +230,27 @@ public class Test {
 				fullFilePath = fileName;
 
 			// Run the analysis
-			if (timeout > 0)
-				runAnalysisTimeout(fullFilePath, args[1]);
-			else if (sysTimeout > 0)
-				runAnalysisSysTimeout(fullFilePath, args[1]);
-			else
-				runAnalysis(fullFilePath, args[1]);
-
+			while (repeatCount > 0) {
+				System.gc();
+				if (timeout > 0)
+					runAnalysisTimeout(fullFilePath, args[1]);
+				else if (sysTimeout > 0)
+					runAnalysisSysTimeout(fullFilePath, args[1]);
+				else
+					runAnalysis(fullFilePath, args[1]);
+				repeatCount--;
+			}
+			
 			System.gc();
 		}
 	}
 
-
+	/**
+	 * Parses the optional command-line arguments
+	 * @param args The array of arguments to parse
+	 * @return True if all arguments are valid and could be parsed, otherwise
+	 * false
+	 */
 	private static boolean parseAdditionalOptions(String[] args) {
 		int i = 2;
 		while (i < args.length) {
@@ -226,33 +263,35 @@ public class Test {
 				i += 2;
 			}
 			else if (args[i].equalsIgnoreCase("--singleflow")) {
-				stopAfterFirstFlow = true;
+				config.setStopAfterFirstFlow(true);
 				i++;
 			}
 			else if (args[i].equalsIgnoreCase("--implicit")) {
-				implicitFlows = true;
+				config.setEnableImplicitFlows(true);
 				i++;
 			}
 			else if (args[i].equalsIgnoreCase("--nostatic")) {
-				staticTracking = false;
+				config.setEnableStaticFieldTracking(false);
 				i++;
 			}
 			else if (args[i].equalsIgnoreCase("--aplength")) {
-				accessPathLength = Integer.valueOf(args[i+1]);
+				InfoflowAndroidConfiguration.setAccessPathLength(Integer.valueOf(args[i+1]));
 				i += 2;
 			}
 			else if (args[i].equalsIgnoreCase("--cgalgo")) {
 				String algo = args[i+1];
 				if (algo.equalsIgnoreCase("AUTO"))
-					callgraphAlgorithm = CallgraphAlgorithm.AutomaticSelection;
+					config.setCallgraphAlgorithm(CallgraphAlgorithm.AutomaticSelection);
 				else if (algo.equalsIgnoreCase("CHA"))
-					callgraphAlgorithm = CallgraphAlgorithm.CHA;
+					config.setCallgraphAlgorithm(CallgraphAlgorithm.CHA);
 				else if (algo.equalsIgnoreCase("VTA"))
-					callgraphAlgorithm = CallgraphAlgorithm.VTA;
+					config.setCallgraphAlgorithm(CallgraphAlgorithm.VTA);
 				else if (algo.equalsIgnoreCase("RTA"))
-					callgraphAlgorithm = CallgraphAlgorithm.RTA;
+					config.setCallgraphAlgorithm(CallgraphAlgorithm.RTA);
 				else if (algo.equalsIgnoreCase("SPARK"))
-					callgraphAlgorithm = CallgraphAlgorithm.SPARK;
+					config.setCallgraphAlgorithm(CallgraphAlgorithm.SPARK);
+				else if (algo.equalsIgnoreCase("GEOM"))
+					config.setCallgraphAlgorithm(CallgraphAlgorithm.GEOM);
 				else {
 					System.err.println("Invalid callgraph algorithm");
 					return false;
@@ -260,21 +299,21 @@ public class Test {
 				i += 2;
 			}
 			else if (args[i].equalsIgnoreCase("--nocallbacks")) {
-				enableCallbacks = false;
+				config.setEnableCallbacks(false);
 				i++;
 			}
 			else if (args[i].equalsIgnoreCase("--noexceptions")) {
-				enableExceptions = false;
+				config.setEnableExceptionTracking(false);
 				i++;
 			}
 			else if (args[i].equalsIgnoreCase("--layoutmode")) {
 				String algo = args[i+1];
 				if (algo.equalsIgnoreCase("NONE"))
-					layoutMatchingMode = LayoutMatchingMode.NoMatch;
+					config.setLayoutMatchingMode(LayoutMatchingMode.NoMatch);
 				else if (algo.equalsIgnoreCase("PWD"))
-					layoutMatchingMode = LayoutMatchingMode.MatchSensitiveOnly;
+					config.setLayoutMatchingMode(LayoutMatchingMode.MatchSensitiveOnly);
 				else if (algo.equalsIgnoreCase("ALL"))
-					layoutMatchingMode = LayoutMatchingMode.MatchAll;
+					config.setLayoutMatchingMode(LayoutMatchingMode.MatchAll);
 				else {
 					System.err.println("Invalid layout matching mode");
 					return false;
@@ -282,11 +321,15 @@ public class Test {
 				i += 2;
 			}
 			else if (args[i].equalsIgnoreCase("--aliasflowins")) {
-				flowSensitiveAliasing = false;
+				config.setFlowSensitiveAliasing(false);
+				i++;
+			}
+			else if (args[i].equalsIgnoreCase("--paths")) {
+				config.setComputeResultPaths(true);
 				i++;
 			}
 			else if (args[i].equalsIgnoreCase("--nopaths")) {
-				computeResultPaths = false;
+				config.setComputeResultPaths(false);
 				i++;
 			}
 			else if (args[i].equalsIgnoreCase("--aggressivetw")) {
@@ -296,24 +339,76 @@ public class Test {
 			else if (args[i].equalsIgnoreCase("--pathalgo")) {
 				String algo = args[i+1];
 				if (algo.equalsIgnoreCase("CONTEXTSENSITIVE"))
-					pathBuilder = PathBuilder.ContextSensitive;
+					config.setPathBuilder(PathBuilder.ContextSensitive);
 				else if (algo.equalsIgnoreCase("CONTEXTINSENSITIVE"))
-					pathBuilder = PathBuilder.ContextInsensitive;
+					config.setPathBuilder(PathBuilder.ContextInsensitive);
 				else if (algo.equalsIgnoreCase("SOURCESONLY"))
-					pathBuilder = PathBuilder.ContextInsensitiveSourceFinder;
+					config.setPathBuilder(PathBuilder.ContextInsensitiveSourceFinder);
 				else {
 					System.err.println("Invalid path reconstruction algorithm");
 					return false;
 				}
 				i += 2;
 			}
-			else if (args[i].equalsIgnoreCase("--libsumtw")) {
-				librarySummaryTaintWrapper = true;
-				i++;
-			}
 			else if (args[i].equalsIgnoreCase("--summarypath")) {
 				summaryPath = args[i + 1];
 				i += 2;
+			}
+			else if (args[i].equalsIgnoreCase("--saveresults")) {
+				resultFilePath = args[i + 1];
+				i += 2;
+			}
+			else if (args[i].equalsIgnoreCase("--sysflows")) {
+				config.setIgnoreFlowsInSystemPackages(false);
+				i++;
+			}
+			else if (args[i].equalsIgnoreCase("--notaintwrapper")) {
+				noTaintWrapper = true;
+				i++;
+			}
+			else if (args[i].equalsIgnoreCase("--repeatcount")) {
+				repeatCount = Integer.parseInt(args[i + 1]);
+				i += 2;
+			}
+			else if (args[i].equalsIgnoreCase("--noarraysize")) {
+				config.setEnableArraySizeTainting(false);
+				i++;
+			}
+			else if (args[i].equalsIgnoreCase("--arraysize")) {
+				config.setEnableArraySizeTainting(true);
+				i++;
+			}
+			else if (args[i].equalsIgnoreCase("--notypetightening")) {
+				InfoflowAndroidConfiguration.setUseTypeTightening(false);
+				i++;
+			}
+			else if (args[i].equalsIgnoreCase("--safemode")) {
+				InfoflowAndroidConfiguration.setUseThisChainReduction(false);
+				i++;
+			}
+			else if (args[i].equalsIgnoreCase("--logsourcesandsinks")) {
+				config.setLogSourcesAndSinks(true);
+				i++;
+			}
+			else if (args[i].equalsIgnoreCase("--callbackanalyzer")) {
+				String algo = args[i+1];
+				if (algo.equalsIgnoreCase("DEFAULT"))
+					config.setCallbackAnalyzer(CallbackAnalyzer.Default);
+				else if (algo.equalsIgnoreCase("FAST"))
+					config.setCallbackAnalyzer(CallbackAnalyzer.Fast);
+				else {
+					System.err.println("Invalid callback analysis algorithm");
+					return false;
+				}
+				i += 2;
+			}
+			else if (args[i].equalsIgnoreCase("--maxthreadnum")){
+				config.setMaxThreadNum(Integer.valueOf(args[i+1]));
+				i += 2;
+			}
+			else if (args[i].equalsIgnoreCase("--arraysizetainting")) {
+				config.setEnableArraySizeTainting(true);
+				i++;
 			}
 			else
 				i++;
@@ -325,14 +420,11 @@ public class Test {
 		if (timeout > 0 && sysTimeout > 0) {
 			return false;
 		}
-		if (!flowSensitiveAliasing && callgraphAlgorithm != CallgraphAlgorithm.OnDemand
-				&& callgraphAlgorithm != CallgraphAlgorithm.AutomaticSelection) {
+		if (!config.getFlowSensitiveAliasing()
+				&& config.getCallgraphAlgorithm() != CallgraphAlgorithm.OnDemand
+				&& config.getCallgraphAlgorithm() != CallgraphAlgorithm.AutomaticSelection) {
 			System.err.println("Flow-insensitive aliasing can only be configured for callgraph "
 					+ "algorithms that support this choice.");
-			return false;
-		}
-		if (librarySummaryTaintWrapper && summaryPath.isEmpty()) {
-			System.err.println("Summary path must be specified when using library summaries");
 			return false;
 		}
 		return true;
@@ -394,23 +486,36 @@ public class Test {
 				"soot.jimple.infoflow.android.TestApps.Test",
 				fileName,
 				androidJar,
-				stopAfterFirstFlow ? "--singleflow" : "--nosingleflow",
-				implicitFlows ? "--implicit" : "--noimplicit",
-				staticTracking ? "--static" : "--nostatic", 
-				"--aplength", Integer.toString(accessPathLength),
-				"--cgalgo", callgraphAlgorithmToString(callgraphAlgorithm),
-				enableCallbacks ? "--callbacks" : "--nocallbacks",
-				enableExceptions ? "--exceptions" : "--noexceptions",
-				"--layoutmode", layoutMatchingModeToString(layoutMatchingMode),
-				flowSensitiveAliasing ? "--aliasflowsens" : "--aliasflowins",
-				computeResultPaths ? "--paths" : "--nopaths",
+				config.getStopAfterFirstFlow() ? "--singleflow" : "--nosingleflow",
+				config.getEnableImplicitFlows() ? "--implicit" : "--noimplicit",
+				config.getEnableStaticFieldTracking() ? "--static" : "--nostatic", 
+				"--aplength", Integer.toString(InfoflowAndroidConfiguration.getAccessPathLength()),
+				"--cgalgo", callgraphAlgorithmToString(config.getCallgraphAlgorithm()),
+				config.getEnableCallbacks() ? "--callbacks" : "--nocallbacks",
+				config.getEnableExceptionTracking() ? "--exceptions" : "--noexceptions",
+				"--layoutmode", layoutMatchingModeToString(config.getLayoutMatchingMode()),
+				config.getFlowSensitiveAliasing() ? "--aliasflowsens" : "--aliasflowins",
+				config.getComputeResultPaths() ? "--paths" : "--nopaths",
 				aggressiveTaintWrapper ? "--aggressivetw" : "--nonaggressivetw",
-				"--pathalgo", pathAlgorithmToString(pathBuilder) };
-		System.out.println("Running command: " + executable + " " + command);
+				"--pathalgo", pathAlgorithmToString(config.getPathBuilder()),
+				(summaryPath != null && !summaryPath.isEmpty()) ? "--summarypath" : "",
+				(summaryPath != null && !summaryPath.isEmpty()) ? summaryPath : "",
+				(resultFilePath != null && !resultFilePath.isEmpty()) ? "--saveresults" : "",
+				noTaintWrapper ? "--notaintwrapper" : "",
+//				"--repeatCount", Integer.toString(repeatCount),
+				config.getEnableArraySizeTainting() ? "" : "--noarraysize",
+				InfoflowAndroidConfiguration.getUseTypeTightening() ? "" : "--notypetightening",
+				InfoflowAndroidConfiguration.getUseThisChainReduction() ? "" : "--safemode",
+				config.getLogSourcesAndSinks() ? "--logsourcesandsinks" : "",
+				"--callbackanalyzer", callbackAlgorithmToString(config.getCallbackAnalyzer()),
+				"--maxthreadnum", Integer.toString(config.getMaxThreadNum()),
+				config.getEnableArraySizeTainting() ? "--arraysizetainting" : ""
+				};
+		System.out.println("Running command: " + executable + " " + Arrays.toString(command));
 		try {
 			ProcessBuilder pb = new ProcessBuilder(command);
-			pb.redirectOutput(new File("_out_" + new File(fileName).getName() + ".txt"));
-			pb.redirectError(new File("err_" + new File(fileName).getName() + ".txt"));
+			pb.redirectOutput(new File("out_" + new File(fileName).getName() + "_" + repeatCount + ".txt"));
+			pb.redirectError(new File("err_" + new File(fileName).getName() + "_" + repeatCount + ".txt"));
 			Process proc = pb.start();
 			proc.waitFor();
 		} catch (IOException ex) {
@@ -434,6 +539,8 @@ public class Test {
 				return "RTA";
 			case SPARK:
 				return "SPARK";
+			case GEOM:
+				return "GEOM";
 			default:
 				return "unknown";
 		}
@@ -465,6 +572,17 @@ public class Test {
 		}
 	}
 	
+	private static String callbackAlgorithmToString(CallbackAnalyzer analyzer) {
+		switch (analyzer) {
+			case Default:
+				return "DEFAULT";
+			case Fast:
+				return "FAST";
+			default :
+				return "UNKNOWN";
+		}
+	}
+
 	private static InfoflowResults runAnalysis(final String fileName, final String androidJar) {
 		try {
 			final long beforeRun = System.nanoTime();
@@ -478,45 +596,74 @@ public class Test {
 			{
 				app = new SetupApplication(androidJar, fileName, ipcManager);
 			}
-
-			app.setStopAfterFirstFlow(stopAfterFirstFlow);
-			app.setEnableImplicitFlows(implicitFlows);
-			app.setEnableStaticFieldTracking(staticTracking);
-			app.setEnableCallbacks(enableCallbacks);
-			app.setEnableExceptionTracking(enableExceptions);
-			app.setAccessPathLength(accessPathLength);
-			app.setLayoutMatchingMode(layoutMatchingMode);
-			app.setFlowSensitiveAliasing(flowSensitiveAliasing);
-			app.setPathBuilder(pathBuilder);
-			app.setComputeResultPaths(computeResultPaths);
+			
+			// Set configuration object
+			app.setConfig(config);
+			if (noTaintWrapper)
+				app.setSootConfig(new IInfoflowConfig() {
+					
+					@Override
+					public void setSootOptions(Options options) {
+						options.set_include_all(true);
+					}
+					
+				});
 			
 			final ITaintPropagationWrapper taintWrapper;
-			if (librarySummaryTaintWrapper) {
+			if (noTaintWrapper)
+				taintWrapper = null;
+			else if (summaryPath != null && !summaryPath.isEmpty()) {
+				System.out.println("Using the StubDroid taint wrapper");
 				taintWrapper = createLibrarySummaryTW();
+				if (taintWrapper == null) {
+					System.err.println("Could not initialize StubDroid");
+					return null;
+				}
 			}
 			else {
 				final EasyTaintWrapper easyTaintWrapper;
-				if (new File("../soot-infoflow/EasyTaintWrapperSource.txt").exists())
-					easyTaintWrapper = new EasyTaintWrapper("../soot-infoflow/EasyTaintWrapperSource.txt");
-				else
-					easyTaintWrapper = new EasyTaintWrapper("EasyTaintWrapperSource.txt");
+				File twSourceFile = new File("../soot-infoflow/EasyTaintWrapperSource.txt");
+				if (twSourceFile.exists())
+					easyTaintWrapper = new EasyTaintWrapper(twSourceFile);
+				else {
+					twSourceFile = new File("EasyTaintWrapperSource.txt");
+					if (twSourceFile.exists())
+						easyTaintWrapper = new EasyTaintWrapper(twSourceFile);
+					else {
+						System.err.println("Taint wrapper definition file not found at "
+								+ twSourceFile.getAbsolutePath());
+						return null;
+					}
+				}
 				easyTaintWrapper.setAggressiveMode(aggressiveTaintWrapper);
 				taintWrapper = easyTaintWrapper;
 			}
 			app.setTaintWrapper(taintWrapper);
 			app.calculateSourcesSinksEntrypoints("SourcesAndSinks.txt");
-			//app.calculateSourcesSinksEntrypoints("SuSiExport.xml");
-			
 			
 			if (DEBUG) {
 				app.printEntrypoints();
 				app.printSinks();
 				app.printSources();
 			}
-				
+			
 			System.out.println("Running data flow analysis...");
 			final InfoflowResults res = app.runInfoflow(new MyResultsAvailableHandler());
 			System.out.println("Analysis has run for " + (System.nanoTime() - beforeRun) / 1E9 + " seconds");
+			
+			if (config.getLogSourcesAndSinks()) {
+				if (!app.getCollectedSources().isEmpty()) {
+					System.out.println("Collected sources:");
+					for (Stmt s : app.getCollectedSources())
+						System.out.println("\t" + s);
+				}
+				if (!app.getCollectedSinks().isEmpty()) {
+					System.out.println("Collected sinks:");
+					for (Stmt s : app.getCollectedSinks())
+						System.out.println("\t" + s);
+				}
+			}
+			
 			return res;
 		} catch (IOException ex) {
 			System.err.println("Could not read file: " + ex.getMessage());
@@ -538,18 +685,80 @@ public class Test {
 	private static ITaintPropagationWrapper createLibrarySummaryTW()
 			throws IOException {
 		try {
-			Class clzLazySummary = Class.forName("soot.jimple.infoflow.methodSummary.data.impl.LazySummary");
+			Class clzLazySummary = Class.forName("soot.jimple.infoflow.methodSummary.data.provider.LazySummaryProvider");
+			Class itfLazySummary = Class.forName("soot.jimple.infoflow.methodSummary.data.provider.IMethodSummaryProvider");
 			
 			Object lazySummary = clzLazySummary.getConstructor(File.class).newInstance(new File(summaryPath));
 			
 			ITaintPropagationWrapper summaryWrapper = (ITaintPropagationWrapper) Class.forName
 					("soot.jimple.infoflow.methodSummary.taintWrappers.SummaryTaintWrapper").getConstructor
-					(clzLazySummary).newInstance(lazySummary);
+					(itfLazySummary).newInstance(lazySummary);
 			
-			final TaintWrapperSet taintWrapperSet = new TaintWrapperSet();
-			taintWrapperSet.addWrapper(summaryWrapper);
-			taintWrapperSet.addWrapper(new EasyTaintWrapper("EasyTaintWrapperConversion.txt"));
-			return taintWrapperSet;
+			ITaintPropagationWrapper systemClassWrapper = new ITaintPropagationWrapper() {
+				
+				private ITaintPropagationWrapper wrapper = new EasyTaintWrapper("EasyTaintWrapperSource.txt");
+				
+				private boolean isSystemClass(Stmt stmt) {
+					if (stmt.containsInvokeExpr())
+						return SystemClassHandler.isClassInSystemPackage(
+								stmt.getInvokeExpr().getMethod().getDeclaringClass().getName());
+					return false;
+				}
+				
+				@Override
+				public boolean supportsCallee(Stmt callSite) {
+					return isSystemClass(callSite) && wrapper.supportsCallee(callSite);
+				}
+				
+				@Override
+				public boolean supportsCallee(SootMethod method) {
+					return SystemClassHandler.isClassInSystemPackage(method.getDeclaringClass().getName())
+							&& wrapper.supportsCallee(method);
+				}
+				
+				@Override
+				public boolean isExclusive(Stmt stmt, Abstraction taintedPath) {
+					return isSystemClass(stmt) && wrapper.isExclusive(stmt, taintedPath);
+				}
+				
+				@Override
+				public void initialize(InfoflowManager manager) {
+					wrapper.initialize(manager);
+				}
+				
+				@Override
+				public int getWrapperMisses() {
+					return 0;
+				}
+				
+				@Override
+				public int getWrapperHits() {
+					return 0;
+				}
+				
+				@Override
+				public Set<Abstraction> getTaintsForMethod(Stmt stmt, Abstraction d1,
+						Abstraction taintedPath) {
+					if (!isSystemClass(stmt))
+						return null;
+					return wrapper.getTaintsForMethod(stmt, d1, taintedPath);
+				}
+				
+				@Override
+				public Set<Abstraction> getAliasesForMethod(Stmt stmt, Abstraction d1,
+						Abstraction taintedPath) {
+					if (!isSystemClass(stmt))
+						return null;
+					return wrapper.getAliasesForMethod(stmt, d1, taintedPath);
+				}
+				
+			};
+			
+			Method setFallbackMethod = summaryWrapper.getClass().getMethod("setFallbackTaintWrapper",
+					ITaintPropagationWrapper.class);
+			setFallbackMethod.invoke(summaryWrapper, systemClassWrapper);
+			
+			return summaryWrapper;
 		}
 		catch (ClassNotFoundException | NoSuchMethodException ex) {
 			System.err.println("Could not find library summary classes: " + ex.getMessage());
@@ -589,10 +798,17 @@ public class Test {
 		System.out.println("\t--PATHALGO Use path reconstruction algorithm x");
 		System.out.println("\t--LIBSUMTW Use library summary taint wrapper");
 		System.out.println("\t--SUMMARYPATH Path to library summaries");
+		System.out.println("\t--SYSFLOWS Also analyze classes in system packages");
+		System.out.println("\t--NOTAINTWRAPPER Disables the use of taint wrappers");
+		System.out.println("\t--NOTYPETIGHTENING Disables the use of taint wrappers");
+		System.out.println("\t--LOGSOURCESANDSINKS Print out concrete source/sink instances");
+		System.out.println("\t--CALLBACKANALYZER x Uses callback analysis algorithm x");
+		System.out.println("\t--MAXTHREADNUM x Sets the maximum number of threads to be used by the analysis to x");
 		System.out.println();
-		System.out.println("Supported callgraph algorithms: AUTO, CHA, RTA, VTA, SPARK");
+		System.out.println("Supported callgraph algorithms: AUTO, CHA, RTA, VTA, SPARK, GEOM");
 		System.out.println("Supported layout mode algorithms: NONE, PWD, ALL");
 		System.out.println("Supported path algorithms: CONTEXTSENSITIVE, CONTEXTINSENSITIVE, SOURCESONLY");
+		System.out.println("Supported callback algorithms: DEFAULT, FAST");
 	}
 
 }

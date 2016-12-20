@@ -17,11 +17,13 @@ import soot.jimple.DefinitionStmt;
 import soot.jimple.InstanceInvokeExpr;
 import soot.jimple.Stmt;
 import soot.jimple.infoflow.android.resources.LayoutControl;
-import soot.jimple.infoflow.android.source.data.AccessPathTuple;
-import soot.jimple.infoflow.android.source.data.SourceSinkDefinition;
 import soot.jimple.infoflow.data.AccessPath;
+import soot.jimple.infoflow.data.AccessPathFactory;
 import soot.jimple.infoflow.data.SootMethodAndClass;
 import soot.jimple.infoflow.source.SourceInfo;
+import soot.jimple.infoflow.source.data.AccessPathTuple;
+import soot.jimple.infoflow.source.data.SourceSinkDefinition;
+import soot.jimple.infoflow.util.SystemClassHandler;
 
 /**
  * SourceSinkManager for Android applications. This class uses precise access
@@ -91,7 +93,7 @@ public class AccessPathBasedSourceSinkManager extends AndroidSourceSinkManager {
 		SourceSinkDefinition def = sourceMethods.get(signature);
 				
 		// If we don't have any more precise source information, we take the
-		// default behavior of our parent implementation. We do the same of we
+		// default behavior of our parent implementation. We do the same if we
 		// tried using access paths and failed, but this is a shortcut in case
 		// we know that we don't have any access paths anyway.
 		if (null == def || def.isEmpty())
@@ -147,14 +149,14 @@ public class AccessPathBasedSourceSinkManager extends AndroidSourceSinkManager {
 		if (baseVal.getType() instanceof PrimType
 				|| apt.getFields() == null
 				|| apt.getFields().length == 0)
-			return new AccessPath(baseVal, true);
+			return AccessPathFactory.v().createAccessPath(baseVal, true);
 		
 		SootClass baseClass = ((RefType) baseVal.getType()).getSootClass();
 		SootField[] fields = new SootField[apt.getFields().length];
 		for (int i = 0; i < fields.length; i++)
 			fields[i] = baseClass.getFieldByName(apt.getFields()[i]);
 		
-		return new AccessPath(baseVal, fields, true);
+		return AccessPathFactory.v().createAccessPath(baseVal, fields, true);
 	}
 	
 	@Override
@@ -167,13 +169,23 @@ public class AccessPathBasedSourceSinkManager extends AndroidSourceSinkManager {
 		final String methodSignature = methodToSignature.getUnchecked(
 				sCallSite.getInvokeExpr().getMethod());
 		SourceSinkDefinition def = sinkMethods.get(methodSignature);
-		if (def == null)
+		if (def == null) {
+			// If we don't have a sink definition for the direct callee, we
+			// check the CFG.
+			for (SootMethod sm : cfg.getCalleesOfCallAt(sCallSite)) {
+				String signature = methodToSignature.getUnchecked(sm);
+				if (this.sinkMethods.containsKey(signature))
+					return true;
+			}
 			return false;
+		}
 		
 		// If we have no precise information, we conservatively assume that
-		// everything is tainted without looking at the access path
+		// everything is tainted without looking at the access path. Only
+		// exception: separate compilation assumption
 		if (def.isEmpty())
-			return true;
+			return SystemClassHandler.isTaintVisible(sourceAccessPath,
+					sCallSite.getInvokeExpr().getMethod());
 		
 		// If we are only checking whether this statement can be a sink in
 		// general, we know this by now
@@ -185,7 +197,7 @@ public class AccessPathBasedSourceSinkManager extends AndroidSourceSinkManager {
 				&& def.getBaseObjects() != null) {
 			for (AccessPathTuple apt : def.getBaseObjects())
 				if (apt.isSink() && accessPathMatches(sourceAccessPath, apt))
-					return true;	
+					return true;
 		}
 		
 		// Check whether a parameter matches our definition

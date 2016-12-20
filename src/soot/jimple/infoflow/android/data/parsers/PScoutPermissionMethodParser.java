@@ -23,8 +23,8 @@ import java.util.regex.Pattern;
 
 import soot.jimple.infoflow.android.data.AndroidMethod;
 import soot.jimple.infoflow.android.data.AndroidMethod.CATEGORY;
-import soot.jimple.infoflow.android.source.data.ISourceSinkDefinitionProvider;
-import soot.jimple.infoflow.android.source.data.SourceSinkDefinition;
+import soot.jimple.infoflow.source.data.ISourceSinkDefinitionProvider;
+import soot.jimple.infoflow.source.data.SourceSinkDefinition;
 
 /**
  * Parser of the permissions to method map from the University of Toronto (PScout)
@@ -147,12 +147,14 @@ public class PScoutPermissionMethodParser implements ISourceSinkDefinitionProvid
 			for (String parameter : params.split(","))
 				methodParameters.add(parameter.trim());
 		
-		//permissions
-		Set<String> permissions = new HashSet<String>();
-		permissions.add(currentPermission);
-		
 		//create method signature
-		singleMethod = new AndroidMethod(methodName, methodParameters, returnType, className, permissions);
+		Set<String> permissions = null;
+		if (currentPermission != null) {
+			permissions = new HashSet<>();
+			permissions.add(currentPermission);
+		}
+		singleMethod = new AndroidMethod(methodName, methodParameters, returnType, className,
+				permissions);
 		
 		if(m.group(5) != null){
 			String targets = m.group(5).substring(3);
@@ -283,6 +285,9 @@ public class PScoutPermissionMethodParser implements ISourceSinkDefinitionProvid
 
 	@Override
 	public Set<SourceSinkDefinition> getAllMethods() {
+		if (sourceList == null || sinkList == null)
+			parse();
+		
 		Set<SourceSinkDefinition> sourcesSinks = new HashSet<>(sourceList.size()
 				+ sinkList.size() + neitherList.size());
 		sourcesSinks.addAll(sourceList);
