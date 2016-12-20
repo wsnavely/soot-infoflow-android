@@ -21,8 +21,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import soot.jimple.infoflow.android.data.AndroidMethod;
-import soot.jimple.infoflow.android.source.data.ISourceSinkDefinitionProvider;
-import soot.jimple.infoflow.android.source.data.SourceSinkDefinition;
+import soot.jimple.infoflow.source.data.ISourceSinkDefinitionProvider;
+import soot.jimple.infoflow.source.data.SourceSinkDefinition;
 
 /**
  * Parser for the permissions to method map of Adrienne Porter Felt. 
@@ -208,6 +208,9 @@ public class PermissionMethodParser implements ISourceSinkDefinitionProvider {
 
 	@Override
 	public Set<SourceSinkDefinition> getAllMethods() {
+		if (sourceList == null || sinkList == null)
+			parse();
+		
 		Set<SourceSinkDefinition> sourcesSinks = new HashSet<>(sourceList.size()
 				+ sinkList.size() + neitherList.size());
 		sourcesSinks.addAll(sourceList);
