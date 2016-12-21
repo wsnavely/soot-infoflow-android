@@ -27,6 +27,7 @@ import soot.SootClass;
 import soot.SootField;
 import soot.SootMethod;
 import soot.Unit;
+import soot.VoidType;
 import soot.jimple.AssignStmt;
 import soot.jimple.DefinitionStmt;
 import soot.jimple.FieldRef;
@@ -41,11 +42,13 @@ import soot.jimple.infoflow.android.resources.ARSCFileParser;
 import soot.jimple.infoflow.android.resources.ARSCFileParser.AbstractResource;
 import soot.jimple.infoflow.android.resources.ARSCFileParser.ResPackage;
 import soot.jimple.infoflow.android.resources.LayoutControl;
-import soot.jimple.infoflow.android.source.data.SourceSinkDefinition;
 import soot.jimple.infoflow.data.AccessPath;
+import soot.jimple.infoflow.data.AccessPathFactory;
 import soot.jimple.infoflow.data.SootMethodAndClass;
 import soot.jimple.infoflow.source.ISourceSinkManager;
 import soot.jimple.infoflow.source.SourceInfo;
+import soot.jimple.infoflow.source.data.SourceSinkDefinition;
+import soot.jimple.infoflow.util.SystemClassHandler;
 import soot.jimple.toolkits.ide.icfg.BiDiInterproceduralCFG;
 import soot.jimple.toolkits.scalar.ConstantPropagatorAndFolder;
 import soot.tagkit.IntegerConstantValueTag;
@@ -234,6 +237,11 @@ public class AndroidSourceSinkManager implements ISourceSinkManager {
 			InterproceduralCFG<Unit, SootMethod> cfg, AccessPath ap) {
 		if (!sCallSite.containsInvokeExpr())
 			return false;
+		
+		// Check whether the taint is even visible inside the callee
+		final SootMethod callee = sCallSite.getInvokeExpr().getMethod();
+		if (!SystemClassHandler.isTaintVisible(ap, callee))
+			return false;
 
 		// For ICC methods (e.g., startService), the classes name of these
 		// methods may change through user's definition. We match all the
@@ -255,10 +263,21 @@ public class AndroidSourceSinkManager implements ISourceSinkManager {
 																	// class
 			};
 		
-		final SootMethod callee = sCallSite.getInvokeExpr().getMethod();
 		final SootClass sc = callee.getDeclaringClass();
 		final String subSig = callee.getSubSignature();
-		if (!sc.isInterface()) {
+		
+		// Do not consider ICC methods as sinks if only the base object is
+		// tainted
+		boolean isParamTainted = false;
+		if (!sc.isInterface() && !ap.isStaticFieldRef()) {
+			for (int i = 0; i < sCallSite.getInvokeExpr().getArgCount(); i++)
+				if (sCallSite.getInvokeExpr().getArg(i) == ap.getPlainValue()) {
+					isParamTainted = true;
+					break;
+				}
+		}
+		
+		if (isParamTainted) {
 			for (SootClass clazz : iccBaseClasses) {
 				if (Scene.v().getOrMakeFastHierarchy().isSubclass(sc, clazz)) {
 					if (clazz.declaresMethod(subSig)) {
@@ -271,10 +290,12 @@ public class AndroidSourceSinkManager implements ISourceSinkManager {
 			}
 		}
 
+		{
 		final String signature = methodToSignature.getUnchecked(
 				sCallSite.getInvokeExpr().getMethod());
 		if (this.sinkMethods.containsKey(signature))
 			return true;
+		}
 
 		// Check whether we have any of the interfaces on the list
 		for (SootClass i : interfacesOf.getUnchecked(sCallSite.getInvokeExpr().getMethod().getDeclaringClass())) {
@@ -282,7 +303,14 @@ public class AndroidSourceSinkManager implements ISourceSinkManager {
 				if (this.sinkMethods.containsKey(methodToSignature.getUnchecked(i.getMethod(subSig))))
 					return true;
 		}
-
+		
+		// Ask the CFG in case we don't know any better
+		for (SootMethod sm : cfg.getCalleesOfCallAt(sCallSite)) {
+			String signature = methodToSignature.getUnchecked(sm);
+			if (this.sinkMethods.containsKey(signature))
+				return true;
+		}
+		
 		return false;
 	}
 
@@ -299,7 +327,8 @@ public class AndroidSourceSinkManager implements ISourceSinkManager {
 		if (type == SourceType.UISource || type == SourceType.Callback) {
 			if (sCallSite instanceof DefinitionStmt) {
 				DefinitionStmt defStmt = (DefinitionStmt) sCallSite;
-				return new SourceInfo(new AccessPath(defStmt.getLeftOp(), true));
+				return new SourceInfo(AccessPathFactory.v().createAccessPath(
+						defStmt.getLeftOp(), true));
 			}
 			return null;
 		}
@@ -311,14 +340,17 @@ public class AndroidSourceSinkManager implements ISourceSinkManager {
 		// If this is a method call and we have a return value, we taint it.
 		// Otherwise, if we have an instance invocation, we taint the base
 		// object
-		if (sCallSite instanceof DefinitionStmt
-				&& sCallSite.getInvokeExpr().getMethod().getReturnType() != null) {
+		final InvokeExpr iexpr = sCallSite.getInvokeExpr();
+		if (sCallSite instanceof DefinitionStmt && iexpr.getMethod().getReturnType() != null) {
 			DefinitionStmt defStmt = (DefinitionStmt) sCallSite;
-			return new SourceInfo(new AccessPath(defStmt.getLeftOp(), true));
+			return new SourceInfo(AccessPathFactory.v().createAccessPath(
+					defStmt.getLeftOp(), true));
 		}
-		else if (sCallSite.getInvokeExpr() instanceof InstanceInvokeExpr) {
+		else if (iexpr instanceof InstanceInvokeExpr
+				&& iexpr.getMethod().getReturnType() == VoidType.v()) {
 			InstanceInvokeExpr iinv = (InstanceInvokeExpr) sCallSite.getInvokeExpr();
-			return new SourceInfo(new AccessPath(iinv.getBase(), true));
+			return new SourceInfo(AccessPathFactory.v().createAccessPath(
+					iinv.getBase(), true));
 		}
 		else
 			return null;
@@ -342,19 +374,28 @@ public class AndroidSourceSinkManager implements ISourceSinkManager {
 		
 		// This might be a normal source method
 		if (sCallSite.containsInvokeExpr()) {
+			{
 			String signature = methodToSignature.getUnchecked(
 					sCallSite.getInvokeExpr().getMethod());
 			if (this.sourceMethods.containsKey(signature))
 				return SourceType.MethodCall;
+			}
 
 			// Check whether we have any of the interfaces on the list
 			final String subSig = sCallSite.getInvokeExpr().getMethod().getSubSignature();
 			for (SootClass i : interfacesOf.getUnchecked(sCallSite.getInvokeExpr()
 					.getMethod().getDeclaringClass())) {
 				if (i.declaresMethod(subSig))
-					if (this.sinkMethods.containsKey(methodToSignature.getUnchecked(
+					if (this.sourceMethods.containsKey(methodToSignature.getUnchecked(
 							i.getMethod(subSig))))
 						return SourceType.MethodCall;
+			}
+			
+			// Ask the CFG in case we don't know any better
+			for (SootMethod sm : cfg.getCalleesOfCallAt(sCallSite)) {
+				String signature = methodToSignature.getUnchecked(sm);
+				if (this.sourceMethods.containsKey(signature))
+					return SourceType.MethodCall;
 			}
 		}
 

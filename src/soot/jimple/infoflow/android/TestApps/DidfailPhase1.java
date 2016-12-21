@@ -13,9 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
 import java.util.Set;
-
 import org.xmlpull.v1.XmlPullParserException;
-
 import soot.Body;
 import soot.PackManager;
 import soot.Scene;
@@ -23,6 +21,9 @@ import soot.SceneTransformer;
 import soot.SootClass;
 import soot.SootMethod;
 import soot.Transform;
+import java.util.Set;
+import soot.SootClass;
+import soot.SootMethod;
 import soot.Type;
 import soot.jimple.InvokeExpr;
 import soot.jimple.Stmt;
@@ -38,9 +39,9 @@ import soot.jimple.internal.AbstractInstanceInvokeExpr;
 import soot.jimple.internal.AbstractInvokeExpr;
 import soot.tagkit.Tag;
 import soot.toolkits.graph.ExceptionalUnitGraph;
-
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
+import soot.util.MultiMap;
 
 public class DidfailPhase1 {
 	static class DidfailArgs {
@@ -214,7 +215,7 @@ public class DidfailPhase1 {
 				return;
 			}
 
-			Map<ResultSinkInfo, Set<ResultSourceInfo>> resultInfos;
+			MultiMap<ResultSinkInfo, ResultSourceInfo> resultInfos;
 			resultInfos = results.getResults();
 			Comparator<ResultSinkInfo> sinkSorter = new SinkComparator();
 			Comparator<ResultSourceInfo> sourceSorter = new SourceComparator();
@@ -240,7 +241,6 @@ public class DidfailPhase1 {
 				Collections.sort(srcs, sourceSorter);
 
 				for (ResultSourceInfo srcInfo : srcs) {
-
 					System.out.println("SOURCE " + srcInfo.getSource());
 					handleSource(srcInfo, cfg, results);
 				}
