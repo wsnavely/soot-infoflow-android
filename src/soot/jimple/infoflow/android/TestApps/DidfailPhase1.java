@@ -62,32 +62,24 @@ public class DidfailPhase1 {
 
 		@Override
 		public void onBeforeCallgraphConstruction() {
-			PackManager
-					.v()
-					.getPack("wjap")
-					.add(new Transform("wjap.myTransform",
-							new SceneTransformer() {
-								@Override
-								protected void internalTransform(
-										String phaseName,
-										Map<String, String> options) {
-									for (SootClass sc : Scene.v().getClasses()) {
-										for (SootMethod m : sc.getMethods()) {
-											if (m.getName().startsWith(
-													"getDataFromIntent"))
-												try {
-													Body b = m
-															.retrieveActiveBody();
-													//new Simple(
-													//		new ExceptionalUnitGraph(
-													//				b));
-												} catch (Exception e) {
-													continue;
-												}
-										}
-									}
+			PackManager.v().getPack("wjap").add(new Transform("wjap.myTransform", new SceneTransformer() {
+				@Override
+				protected void internalTransform(String phaseName, Map<String, String> options) {
+					for (SootClass sc : Scene.v().getClasses()) {
+						for (SootMethod m : sc.getMethods()) {
+							if (m.getName().startsWith("getDataFromIntent"))
+								try {
+									Body b = m.retrieveActiveBody();
+									// new Simple(
+									// new ExceptionalUnitGraph(
+									// b));
+								} catch (Exception e) {
+									continue;
 								}
-							}));
+						}
+					}
+				}
+			}));
 		}
 
 		@Override
@@ -96,8 +88,7 @@ public class DidfailPhase1 {
 		}
 	}
 
-	private static final class DidfailResultHandler extends
-			AndroidInfoflowResultsHandler {
+	private static final class DidfailResultHandler extends AndroidInfoflowResultsHandler {
 		private BufferedWriter wr;
 
 		private DidfailResultHandler() {
@@ -108,8 +99,7 @@ public class DidfailPhase1 {
 			this.wr = wr;
 		}
 
-		public void handleSink(ResultSinkInfo sinkInfo, IInfoflowCFG cfg,
-				InfoflowResults results) {
+		public void handleSink(ResultSinkInfo sinkInfo, IInfoflowCFG cfg, InfoflowResults results) {
 			Stmt sink = sinkInfo.getSink();
 			String methSig = getMethSig(sink);
 
@@ -148,8 +138,7 @@ public class DidfailPhase1 {
 			println("></sink>");
 		}
 
-		public void handleSource(ResultSourceInfo srcInfo, IInfoflowCFG cfg,
-				InfoflowResults results) {
+		public void handleSource(ResultSourceInfo srcInfo, IInfoflowCFG cfg, InfoflowResults results) {
 			Stmt src = srcInfo.getSource();
 			SootMethod sm = cfg.getMethodOf(src);
 			String methName = sm.getName();
@@ -186,8 +175,7 @@ public class DidfailPhase1 {
 				String sig = getMethSig(s.getSink());
 				String tag = "";
 				if (s.getSink().hasTag("IntentID")) {
-					tag = ((IntentTag) s.getSink().getTag("IntentID"))
-							.getIntentID();
+					tag = ((IntentTag) s.getSink().getTag("IntentID")).getIntentID();
 				}
 				return sig + tag;
 			}
@@ -361,8 +349,7 @@ public class DidfailPhase1 {
 		}
 	}
 
-	public static void main(final String[] args) throws IOException,
-			InterruptedException, XmlPullParserException {
+	public static void main(final String[] args) throws IOException, InterruptedException, XmlPullParserException {
 
 		DidfailArgs jct = new DidfailArgs();
 		new JCommander(jct, args);

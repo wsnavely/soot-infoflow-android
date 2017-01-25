@@ -1,4 +1,18 @@
 {
+	"general": 
+	{
+		"androidPlatformsFolder": "/home/cert/Android/Sdk/platforms",
+		"sourcesAndSinksFile": "/home/cert/git/soot-infoflow-android/SourcesAndSinks.txt"
+	},
+	
+	"taintwrapper": 
+	{
+		"taintWrapperFile": "/home/cert/git/soot-infoflow-android/EasyTaintWrapperSource.txt",
+		"aggressiveTaintWrapper": true
+	},
+		
+	"analysis": 
+	{
         "accessPathLength" : 5,
         "aliasingAlgorithm" : "FlowSensitive",
         "callbackAnalyzer" : "Default",
@@ -19,7 +33,7 @@
         "inspectSinks" : false,
         "inspectSources" : false,
         "layoutMatchingMode" : "MatchSensitiveOnly",
-        "logSourcesAndSinks" : false,
+        "logSourcesAndSinks" : true,
         "maxTheadNum" : -1,
         "mergeNeighbors" : false,
         "oneResultPerAccessPath" : false,
@@ -30,4 +44,5 @@
         "useThisChainReduction" : true,
         "useTypeTightening" : true,
         "writeOutputFiles" : false
+	}
 }

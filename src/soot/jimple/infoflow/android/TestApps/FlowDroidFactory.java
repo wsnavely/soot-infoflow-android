@@ -9,7 +9,6 @@ import org.xmlpull.v1.XmlPullParserException;
 import com.json.parsers.JSONParser;
 import com.json.parsers.JsonParserFactory;
 
-import soot.jimple.infoflow.Infoflow;
 import soot.jimple.infoflow.InfoflowConfiguration;
 import soot.jimple.infoflow.InfoflowConfiguration.AliasingAlgorithm;
 import soot.jimple.infoflow.InfoflowConfiguration.CallgraphAlgorithm;
@@ -23,113 +22,271 @@ import soot.jimple.infoflow.ipc.IIPCManager;
 import soot.jimple.infoflow.taintWrappers.EasyTaintWrapper;
 
 public class FlowDroidFactory {
-	abstract class Option<V> {
-		String repr;
-
-		public Option(String def) {
-			this.repr = def;
-		}
-
-		public void setRepr(String val) {
-			this.repr = val;
-		}
-
-		public abstract V getValue();
+	interface ConfigTransform<V> {
+		void apply(InfoflowAndroidConfiguration s, V value);
 	}
 
-	class SimpleOption extends Option<String> {
-		public SimpleOption(String def) {
-			super(def);
-		}
+	interface Parser<V> {
+		V getValue(String s);
+	}
 
+	class IdentityParser implements Parser<String> {
 		@Override
-		public String getValue() {
-			return this.repr;
+		public String getValue(String s) {
+			return s;
 		}
 	}
 
-	class BooleanOption extends Option<Boolean> {
-		public BooleanOption(String def) {
-			super(def);
-		}
-
-		public BooleanOption(Boolean b) {
-			super(b.toString());
-		}
-
+	class IntParser implements Parser<Integer> {
 		@Override
-		public Boolean getValue() {
-			return Boolean.parseBoolean(this.repr);
+		public Integer getValue(String s) {
+			return Integer.parseInt(s);
 		}
 	}
 
-	class IntOption extends Option<Integer> {
-		public IntOption(String def) {
-			super(def);
-		}
-
-		public IntOption(Integer i) {
-			super(i.toString());
-		}
-
+	class BooleanParser implements Parser<Boolean> {
 		@Override
-		public Integer getValue() {
-			return Integer.parseInt(this.repr);
+		public Boolean getValue(String s) {
+			return Boolean.parseBoolean(s);
 		}
 	}
 
-	class EnumOption extends Option<Enum> {
-		private Class type;
+	class FlowdroidSetting<V> {
+		Parser<V> parser;
+		ConfigTransform<V> tform;
+		V defaultValue;
 
-		public EnumOption(Class t, String def) {
-			super(def);
-			this.type = t;
-		}
-		
-		public EnumOption(Enum e) {
-			this(e.getClass(), e.toString());
-		}
-
-		@Override
-		public Enum getValue() {
-			return Enum.valueOf(this.type, this.repr);
+		public FlowdroidSetting(V defaultValue, Parser<V> parser, ConfigTransform<V> tform) {
+			this.defaultValue = defaultValue;
+			this.parser = parser;
+			this.tform = tform;
 		}
 	}
 
-	public Map<String, Option> getDefaultOptions() {
-		Map<String, Option> options = new HashMap<String, Option>();
-		options.put("accessPathLength", new IntOption(5));
-		options.put("aliasingAlgorithm", new EnumOption(AliasingAlgorithm.FlowSensitive));
-		options.put("callbackAnalyzer", new EnumOption(CallbackAnalyzer.Default));
-		options.put("callgraphAlgorithm", new EnumOption(CallgraphAlgorithm.AutomaticSelection));
-		options.put("codeEliminationMode", new EnumOption(CodeEliminationMode.PropagateConstants));
-		options.put("computeResultPaths", new BooleanOption(true));
-		options.put("enableArraySizeTainting", new BooleanOption(true));
-		options.put("enableCallbacks", new BooleanOption(true));
-		options.put("enableCallbackSources", new BooleanOption(true));
-		options.put("enableExceptions", new BooleanOption(true));
-		options.put("enableImplicitFlows", new BooleanOption(false));
-		options.put("enableIncrementalReporting", new BooleanOption(false));
-		options.put("enableStaticTracking", new BooleanOption(true));
-		options.put("enableTaintAnalysis", new BooleanOption(true));
-		options.put("enableTypeChecking", new BooleanOption(true));
-		options.put("flowSensitiveAliasing", new BooleanOption(true));
-		options.put("ignoreFlowsInSystemPackages", new BooleanOption(true));
-		options.put("inspectSinks", new BooleanOption(false));
-		options.put("inspectSources", new BooleanOption(false));
-		options.put("layoutMatchingMode", new EnumOption(LayoutMatchingMode.MatchSensitiveOnly));
-		options.put("logSourcesAndSinks", new BooleanOption(false));
-		options.put("maxThreadNum", new IntOption(-1));
-		options.put("mergeNeighbors", new BooleanOption(false));
-		options.put("oneResultPerAccessPath", new BooleanOption(false));
-		options.put("pathAgnosticResults", new BooleanOption(true));
-		options.put("pathBuilder", new EnumOption(PathBuilder.ContextInsensitiveSourceFinder));
-		options.put("stopAfterFirstKFlows", new IntOption(0));
-		options.put("useRecursiveAccessPaths", new BooleanOption(true));
-		options.put("useThisChainReduction", new BooleanOption(true));
-		options.put("useTypeTightening", new BooleanOption(true));
-		options.put("writeOutputFiles", new BooleanOption(false));
-		
+	class StringSetting extends FlowdroidSetting<String> {
+		public StringSetting(String defaultValue, Parser<String> parser, ConfigTransform<String> tform) {
+			super(defaultValue, new IdentityParser(), tform);
+		}
+	}
+
+	class IntSetting extends FlowdroidSetting<Integer> {
+		public IntSetting(Integer defaultValue, ConfigTransform<Integer> tform) {
+			super(defaultValue, new IntParser(), tform);
+		}
+	}
+
+	class BoolSetting extends FlowdroidSetting<Boolean> {
+		public BoolSetting(Boolean defaultValue, ConfigTransform<Boolean> tform) {
+			super(defaultValue, new BooleanParser(), tform);
+		}
+	}
+
+	class EnumSetting<E extends Enum<E>> extends FlowdroidSetting<E> {
+		public EnumSetting(E defaultValue, ConfigTransform<E> tform) {
+			super(defaultValue, new Parser<E>() {
+				@Override
+				public E getValue(String s) {
+					Class type = defaultValue.getClass();
+					return (E) Enum.valueOf(type, s);
+				}
+			}, tform);
+		}
+	}
+
+	public Map<String, FlowdroidSetting> getDefaultOptions() {
+		Map<String, FlowdroidSetting> options = new HashMap<String, FlowdroidSetting>();
+
+		options.put("accessPathLength", new IntSetting(5, new ConfigTransform<Integer>() {
+			public void apply(InfoflowAndroidConfiguration conf, Integer value) {
+				InfoflowConfiguration.setAccessPathLength(value);
+			}
+		}));
+
+		options.put("aliasingAlgorithm", new EnumSetting<AliasingAlgorithm>(AliasingAlgorithm.FlowSensitive,
+				new ConfigTransform<AliasingAlgorithm>() {
+					public void apply(InfoflowAndroidConfiguration conf, AliasingAlgorithm value) {
+						conf.setAliasingAlgorithm(value);
+					}
+				}));
+
+		options.put("callbackAnalyzer",
+				new EnumSetting<CallbackAnalyzer>(CallbackAnalyzer.Default, new ConfigTransform<CallbackAnalyzer>() {
+					public void apply(InfoflowAndroidConfiguration conf, CallbackAnalyzer value) {
+						conf.setCallbackAnalyzer(value);
+					}
+				}));
+
+		options.put("callgraphAlgorithm", new EnumSetting<CallgraphAlgorithm>(CallgraphAlgorithm.AutomaticSelection,
+				new ConfigTransform<CallgraphAlgorithm>() {
+					public void apply(InfoflowAndroidConfiguration conf, CallgraphAlgorithm value) {
+						conf.setCallgraphAlgorithm(value);
+					}
+				}));
+
+		options.put("codeEliminationMode", new EnumSetting<CodeEliminationMode>(CodeEliminationMode.PropagateConstants,
+				new ConfigTransform<CodeEliminationMode>() {
+					public void apply(InfoflowAndroidConfiguration conf, CodeEliminationMode value) {
+						conf.setCodeEliminationMode(value);
+					}
+				}));
+
+		options.put("computeResultPaths", new BoolSetting(true, new ConfigTransform<Boolean>() {
+			public void apply(InfoflowAndroidConfiguration conf, Boolean value) {
+				conf.setComputeResultPaths(value);
+			}
+		}));
+
+		options.put("enableArraySizeTainting", new BoolSetting(true, new ConfigTransform<Boolean>() {
+			public void apply(InfoflowAndroidConfiguration conf, Boolean value) {
+				conf.setEnableArraySizeTainting(value);
+			}
+		}));
+
+		options.put("enableCallbacks", new BoolSetting(true, new ConfigTransform<Boolean>() {
+			public void apply(InfoflowAndroidConfiguration conf, Boolean value) {
+				conf.setEnableCallbacks(value);
+			}
+		}));
+
+		options.put("enableCallbackSources", new BoolSetting(true, new ConfigTransform<Boolean>() {
+			public void apply(InfoflowAndroidConfiguration conf, Boolean value) {
+				conf.setEnableCallbackSources(value);
+			}
+		}));
+
+		options.put("enableExceptions", new BoolSetting(true, new ConfigTransform<Boolean>() {
+			public void apply(InfoflowAndroidConfiguration conf, Boolean value) {
+				conf.setEnableExceptionTracking(value);
+			}
+		}));
+
+		options.put("enableImplicitFlows", new BoolSetting(false, new ConfigTransform<Boolean>() {
+			public void apply(InfoflowAndroidConfiguration conf, Boolean value) {
+				conf.setEnableImplicitFlows(value);
+			}
+		}));
+
+		options.put("enableIncrementalReporting", new BoolSetting(false, new ConfigTransform<Boolean>() {
+			public void apply(InfoflowAndroidConfiguration conf, Boolean value) {
+				conf.setIncrementalResultReporting(value);
+			}
+		}));
+
+		options.put("enableStaticTracking", new BoolSetting(true, new ConfigTransform<Boolean>() {
+			public void apply(InfoflowAndroidConfiguration conf, Boolean value) {
+				conf.setEnableStaticFieldTracking(value);
+			}
+		}));
+
+		options.put("enableTaintAnalysis", new BoolSetting(true, new ConfigTransform<Boolean>() {
+			public void apply(InfoflowAndroidConfiguration conf, Boolean value) {
+				conf.setTaintAnalysisEnabled(value);
+			}
+		}));
+
+		options.put("enableTypeChecking", new BoolSetting(true, new ConfigTransform<Boolean>() {
+			public void apply(InfoflowAndroidConfiguration conf, Boolean value) {
+				conf.setEnableTypeChecking(value);
+			}
+		}));
+
+		options.put("flowSensitiveAliasing", new BoolSetting(true, new ConfigTransform<Boolean>() {
+			public void apply(InfoflowAndroidConfiguration conf, Boolean value) {
+				conf.setFlowSensitiveAliasing(value);
+			}
+		}));
+
+		options.put("ignoreFlowsInSystemPackages", new BoolSetting(true, new ConfigTransform<Boolean>() {
+			public void apply(InfoflowAndroidConfiguration conf, Boolean value) {
+				conf.setIgnoreFlowsInSystemPackages(value);
+			}
+		}));
+
+		options.put("inspectSinks", new BoolSetting(false, new ConfigTransform<Boolean>() {
+			public void apply(InfoflowAndroidConfiguration conf, Boolean value) {
+				conf.setInspectSinks(value);
+			}
+		}));
+
+		options.put("inspectSources", new BoolSetting(true, new ConfigTransform<Boolean>() {
+			public void apply(InfoflowAndroidConfiguration conf, Boolean value) {
+				conf.setInspectSources(value);
+			}
+		}));
+
+		options.put("layoutMatchingMode", new EnumSetting<LayoutMatchingMode>(LayoutMatchingMode.MatchSensitiveOnly,
+				new ConfigTransform<LayoutMatchingMode>() {
+					public void apply(InfoflowAndroidConfiguration conf, LayoutMatchingMode value) {
+						conf.setLayoutMatchingMode(value);
+					}
+				}));
+
+		options.put("logSourcesAndSinks", new BoolSetting(false, new ConfigTransform<Boolean>() {
+			public void apply(InfoflowAndroidConfiguration conf, Boolean value) {
+				conf.setLogSourcesAndSinks(value);
+			}
+		}));
+
+		options.put("maxThreadNum", new IntSetting(-1, new ConfigTransform<Integer>() {
+			public void apply(InfoflowAndroidConfiguration conf, Integer value) {
+				conf.setMaxThreadNum(value);
+			}
+		}));
+
+		options.put("mergeNeighbors", new BoolSetting(false, new ConfigTransform<Boolean>() {
+			public void apply(InfoflowAndroidConfiguration conf, Boolean value) {
+				InfoflowConfiguration.setMergeNeighbors(value);
+			}
+		}));
+
+		options.put("oneResultPerAccessPath", new BoolSetting(false, new ConfigTransform<Boolean>() {
+			public void apply(InfoflowAndroidConfiguration conf, Boolean value) {
+				InfoflowConfiguration.setOneResultPerAccessPath(value);
+			}
+		}));
+
+		options.put("pathAgnosticResults", new BoolSetting(true, new ConfigTransform<Boolean>() {
+			public void apply(InfoflowAndroidConfiguration conf, Boolean value) {
+				InfoflowConfiguration.setPathAgnosticResults(value);
+			}
+		}));
+
+		options.put("pathBuilder", new EnumSetting<PathBuilder>(PathBuilder.ContextInsensitiveSourceFinder,
+				new ConfigTransform<PathBuilder>() {
+					public void apply(InfoflowAndroidConfiguration conf, PathBuilder value) {
+						conf.setPathBuilder(value);
+					}
+				}));
+
+		options.put("stopAfterFirstKFlows", new IntSetting(0, new ConfigTransform<Integer>() {
+			public void apply(InfoflowAndroidConfiguration conf, Integer value) {
+				conf.setStopAfterFirstKFlows(value);
+			}
+		}));
+
+		options.put("useRecursiveAccessPaths", new BoolSetting(true, new ConfigTransform<Boolean>() {
+			public void apply(InfoflowAndroidConfiguration conf, Boolean value) {
+				InfoflowConfiguration.setUseRecursiveAccessPaths(value);
+			}
+		}));
+
+		options.put("useThisChainReduction", new BoolSetting(true, new ConfigTransform<Boolean>() {
+			public void apply(InfoflowAndroidConfiguration conf, Boolean value) {
+				InfoflowConfiguration.setUseThisChainReduction(value);
+			}
+		}));
+
+		options.put("useTypeTightening", new BoolSetting(true, new ConfigTransform<Boolean>() {
+			public void apply(InfoflowAndroidConfiguration conf, Boolean value) {
+				InfoflowConfiguration.setUseTypeTightening(value);
+			}
+		}));
+
+		options.put("writeOutputFiles", new BoolSetting(false, new ConfigTransform<Boolean>() {
+			public void apply(InfoflowAndroidConfiguration conf, Boolean value) {
+				conf.setWriteOutputFiles(value);
+			}
+		}));
 		return options;
 	}
 
@@ -141,83 +298,54 @@ public class FlowDroidFactory {
 		return null;
 	}
 
-	public SetupApplication fromJson(String json, String apk)
-			throws IOException, XmlPullParserException {
+	public SetupApplication fromJson(String json, String apk) throws IOException, XmlPullParserException {
 		return fromJson(json, apk, null);
 	}
 
 	public SetupApplication fromJson(String json, String apk, IIPCManager im)
 			throws IOException, XmlPullParserException {
-		Map<String, Option> options = this.getDefaultOptions();
+
 		JsonParserFactory factory = JsonParserFactory.getInstance();
 		JSONParser parser = factory.newJsonParser();
+
+		// Parse the json and pull out the various settings groups
 		Map jsonData = parser.parseJson(json);
+		Map generalSettings = (Map) jsonData.get("general");
+		Map analysisSettings = (Map) jsonData.get("analysis");
+		Map twSettings = (Map) jsonData.get("taintwrapper");
+		Map<String, FlowdroidSetting> settings = this.getDefaultOptions();
 
-		for (Object key : jsonData.keySet()) {
-			if (options.containsKey(key)) {
-				Option opt = options.get(key);
-				opt.getValue();
-				opt.setRepr((String) jsonData.get(key));
-			}
-		}
-
-		return fromOptions(options, apk, im);
-	}
-
-	public SetupApplication fromOptions(Map<String, Option> options,
-			String apk, IIPCManager im) throws IOException,
-			XmlPullParserException {
+		// Construct the SetupApplication
 		SetupApplication app;
-		String platforms = (String) options.get("androidPlatformsFolder")
-				.getValue();
+		String platforms = (String) generalSettings.get("androidPlatformsFolder");
 		if (im == null) {
 			app = new SetupApplication(platforms, apk);
 		} else {
 			app = new SetupApplication(platforms, apk, im);
 		}
-		InfoflowAndroidConfiguration config = new InfoflowAndroidConfiguration();
-		InfoflowConfiguration.setAccessPathLength((int) options.get("accessPathLength").getValue());
-		config.setAliasingAlgorithm((AliasingAlgorithm) options.get("aliasingAlgorithm").getValue());
-		config.setCallbackAnalyzer((CallbackAnalyzer) options.get("callbackAnalyzer").getValue());
-		config.setCallgraphAlgorithm((CallgraphAlgorithm) options.get("callgraphAlgorithm").getValue());
-		config.setCodeEliminationMode((CodeEliminationMode) options.get("codeEliminationMode").getValue());
-		config.setComputeResultPaths((boolean) options.get("computeResultPaths").getValue());
-		config.setEnableArraySizeTainting((boolean) options.get("enableArraySizeTainting").getValue());
-		config.setEnableCallbacks((boolean) options.get("enableCallbacks").getValue());
-		config.setEnableCallbackSources((boolean) options.get("enableCallbackSources").getValue());
-		config.setEnableExceptionTracking((boolean) options.get("enableExceptions").getValue());
-		config.setEnableImplicitFlows((boolean) options.get("enableImplicitFlows").getValue());
-		config.setIncrementalResultReporting((boolean) options.get("enableIncrementalReporting").getValue());
-		config.setEnableStaticFieldTracking((boolean) options.get("enableStaticTracking").getValue());
-		config.setTaintAnalysisEnabled((boolean) options.get("enableTaintAnalysis").getValue());
-		config.setEnableTypeChecking((boolean) options.get("enableTypeChecking").getValue());
-		config.setFlowSensitiveAliasing((boolean) options.get("flowSensitiveAliasing").getValue());
-		config.setIgnoreFlowsInSystemPackages((boolean) options.get("ignoreFlowsInSystemPackages").getValue());
-		config.setInspectSinks((boolean) options.get("inspectSinks").getValue());
-		config.setInspectSources((boolean) options.get("inspectSources").getValue());
-		config.setLayoutMatchingMode((LayoutMatchingMode) options.get("layoutMatchingMode").getValue());
-		config.setLogSourcesAndSinks((boolean) options.get("logSourcesAndSinks").getValue());
-		config.setMaxThreadNum((int) options.get("maxTheadNum").getValue());
-		InfoflowConfiguration.setMergeNeighbors((boolean) options.get("mergeNeighbors").getValue());
-		InfoflowConfiguration.setOneResultPerAccessPath((boolean) options.get("oneResultPerAccessPath").getValue());
-		InfoflowConfiguration.setPathAgnosticResults((boolean) options.get("pathAgnosticResults").getValue());
-		config.setPathBuilder((PathBuilder) options.get("pathBuilder").getValue());
-		config.setStopAfterFirstKFlows((int) options.get("stopAfterFirstKFlows").getValue());
-		InfoflowConfiguration.setUseRecursiveAccessPaths((boolean) options.get("useRecursiveAccessPaths").getValue());
-		InfoflowConfiguration.setUseThisChainReduction((boolean) options.get("useThisChainReduction").getValue());
-		InfoflowConfiguration.setUseTypeTightening((boolean) options.get("useTypeTightening").getValue());
-		config.setWriteOutputFiles((boolean) options.get("writeOutputFiles").getValue());
-		
-		app.setConfig(config);
-		app.calculateSourcesSinksEntrypoints((String) options.get("sourcesAndSinksFile").getValue());
 
-		String taintWrapper = (String) options.get("taintWrapperFile")
-				.getValue();
+		// Configure the infoflow analysis
+		InfoflowAndroidConfiguration config = new InfoflowAndroidConfiguration();
+		for (String name : settings.keySet()) {
+			FlowdroidSetting setting = settings.get(name);
+			Object value = setting.defaultValue;
+			if (analysisSettings.containsKey(name)) {
+				String rawValue = analysisSettings.get(name).toString();
+				value = setting.parser.getValue(rawValue);
+			}
+			setting.tform.apply(config, value);
+		}
+		app.setConfig(config);
+
+		// Calculate sources and sinks
+		app.calculateSourcesSinksEntrypoints((String) generalSettings.get("sourcesAndSinksFile"));
+
+		// Configure the taint wrapper
+		String taintWrapper = (String) twSettings.get("taintWrapperFile");
 		if (taintWrapper != null && !taintWrapper.isEmpty()) {
 			EasyTaintWrapper easyTaintWrapper;
 			easyTaintWrapper = new EasyTaintWrapper(taintWrapper);
-			boolean mode = (boolean) options.get("aggressiveTaintWrapper")
-					.getValue();
+			boolean mode = Boolean.parseBoolean((String) twSettings.get("aggressiveTaintWrapper"));
 			easyTaintWrapper.setAggressiveMode(mode);
 			app.setTaintWrapper(easyTaintWrapper);
 		}
