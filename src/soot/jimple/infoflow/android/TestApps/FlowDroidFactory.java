@@ -298,30 +298,27 @@ public class FlowDroidFactory {
 		return null;
 	}
 
-	public SetupApplication fromJson(String json, String apk) throws IOException, XmlPullParserException {
-		return fromJson(json, apk, null);
+	public SetupApplication fromJson(String json, String apk, String platformsDir, String ss, String tw,
+			boolean aggressiveTw) throws IOException, XmlPullParserException {
+		return fromJson(json, apk, platformsDir, ss, tw, aggressiveTw, null);
 	}
 
-	public SetupApplication fromJson(String json, String apk, IIPCManager im)
-			throws IOException, XmlPullParserException {
+	public SetupApplication fromJson(String json, String apk, String platformsDir, String sourcesSinks, String tw,
+			boolean aggressiveTw, IIPCManager im) throws IOException, XmlPullParserException {
 
 		JsonParserFactory factory = JsonParserFactory.getInstance();
 		JSONParser parser = factory.newJsonParser();
 
 		// Parse the json and pull out the various settings groups
-		Map jsonData = parser.parseJson(json);
-		Map generalSettings = (Map) jsonData.get("general");
-		Map analysisSettings = (Map) jsonData.get("analysis");
-		Map twSettings = (Map) jsonData.get("taintwrapper");
+		Map analysisSettings = parser.parseJson(json);
 		Map<String, FlowdroidSetting> settings = this.getDefaultOptions();
 
 		// Construct the SetupApplication
 		SetupApplication app;
-		String platforms = (String) generalSettings.get("androidPlatformsFolder");
 		if (im == null) {
-			app = new SetupApplication(platforms, apk);
+			app = new SetupApplication(platformsDir, apk);
 		} else {
-			app = new SetupApplication(platforms, apk, im);
+			app = new SetupApplication(platformsDir, apk, im);
 		}
 
 		// Configure the infoflow analysis
@@ -338,15 +335,14 @@ public class FlowDroidFactory {
 		app.setConfig(config);
 
 		// Calculate sources and sinks
-		app.calculateSourcesSinksEntrypoints((String) generalSettings.get("sourcesAndSinksFile"));
+		app.calculateSourcesSinksEntrypoints(sourcesSinks);
 
 		// Configure the taint wrapper
-		String taintWrapper = (String) twSettings.get("taintWrapperFile");
+		String taintWrapper = tw;
 		if (taintWrapper != null && !taintWrapper.isEmpty()) {
 			EasyTaintWrapper easyTaintWrapper;
 			easyTaintWrapper = new EasyTaintWrapper(taintWrapper);
-			boolean mode = Boolean.parseBoolean((String) twSettings.get("aggressiveTaintWrapper"));
-			easyTaintWrapper.setAggressiveMode(mode);
+			easyTaintWrapper.setAggressiveMode(aggressiveTw);
 			app.setTaintWrapper(easyTaintWrapper);
 		}
 

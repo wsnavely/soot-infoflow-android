@@ -1,27 +1,34 @@
 package soot.jimple.infoflow.android.TestApps;
 
-import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileWriter;
+import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.StringWriter;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import java.util.Scanner;
 import java.util.Set;
+
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
+import javax.xml.transform.OutputKeys;
+import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerException;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
+
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
 import org.xmlpull.v1.XmlPullParserException;
-import soot.Body;
-import soot.PackManager;
-import soot.Scene;
-import soot.SceneTransformer;
-import soot.SootClass;
-import soot.SootMethod;
-import soot.Transform;
-import java.util.Set;
+
+import com.beust.jcommander.JCommander;
+import com.beust.jcommander.Parameter;
+
 import soot.SootClass;
 import soot.SootMethod;
 import soot.Type;
@@ -29,7 +36,6 @@ import soot.jimple.InvokeExpr;
 import soot.jimple.Stmt;
 import soot.jimple.infoflow.Infoflow;
 import soot.jimple.infoflow.android.SetupApplication;
-import soot.jimple.infoflow.handlers.PreAnalysisHandler;
 import soot.jimple.infoflow.results.InfoflowResults;
 import soot.jimple.infoflow.results.ResultSinkInfo;
 import soot.jimple.infoflow.results.ResultSourceInfo;
@@ -37,10 +43,6 @@ import soot.jimple.infoflow.solver.cfg.IInfoflowCFG;
 import soot.jimple.infoflow.util.IntentTag;
 import soot.jimple.internal.AbstractInstanceInvokeExpr;
 import soot.jimple.internal.AbstractInvokeExpr;
-import soot.tagkit.Tag;
-import soot.toolkits.graph.ExceptionalUnitGraph;
-import com.beust.jcommander.JCommander;
-import com.beust.jcommander.Parameter;
 import soot.util.MultiMap;
 
 public class DidfailPhase1 {
@@ -51,114 +53,88 @@ public class DidfailPhase1 {
 		@Parameter(names = "-apk")
 		private String apk;
 
+		@Parameter(names = "-platforms")
+		private String platforms;
+
 		@Parameter(names = "-out")
 		private String outfile;
 
 		@Parameter(names = "-config")
 		private String config = "fd.json";
-	}
 
-	private static class DidfailPreprocessor implements PreAnalysisHandler {
+		@Parameter(names = "-sourcesSinks")
+		private String sourcesAndSinks;
 
-		@Override
-		public void onBeforeCallgraphConstruction() {
-			PackManager.v().getPack("wjap").add(new Transform("wjap.myTransform", new SceneTransformer() {
-				@Override
-				protected void internalTransform(String phaseName, Map<String, String> options) {
-					for (SootClass sc : Scene.v().getClasses()) {
-						for (SootMethod m : sc.getMethods()) {
-							if (m.getName().startsWith("getDataFromIntent"))
-								try {
-									Body b = m.retrieveActiveBody();
-									// new Simple(
-									// new ExceptionalUnitGraph(
-									// b));
-								} catch (Exception e) {
-									continue;
-								}
-						}
-					}
-				}
-			}));
-		}
+		@Parameter(names = "-taintWrapper")
+		private String taintWrapper;
 
-		@Override
-		public void onAfterCallgraphConstruction() {
-			PackManager.v().getPack("wjap").apply();
-		}
+		@Parameter(names = "-aggressiveTw", arity = 1)
+		private boolean aggresive;
 	}
 
 	private static final class DidfailResultHandler extends AndroidInfoflowResultsHandler {
-		private BufferedWriter wr;
+		private OutputStream os;
+		private Document document;
 
 		private DidfailResultHandler() {
-			this.wr = null;
+			this.os = System.out;
 		}
 
-		private DidfailResultHandler(BufferedWriter wr) {
-			this.wr = wr;
+		private DidfailResultHandler(OutputStream os) {
+			this.os = os;
 		}
 
-		public void handleSink(ResultSinkInfo sinkInfo, IInfoflowCFG cfg, InfoflowResults results) {
+		public Element handleSink(ResultSinkInfo sinkInfo, IInfoflowCFG cfg, InfoflowResults results) {
 			Stmt sink = sinkInfo.getSink();
 			String methSig = getMethSig(sink);
-
-			printf("\t<sink method=\"%s\"", escapeXML(methSig));
+			Element sinkElement = this.document.createElement("sink");
+			sinkElement.setAttribute("method", methSig);
 
 			if (Infoflow.isIntentSink(sink)) {
 				IntentTag tag = (IntentTag) sink.getTag("IntentID");
-				String id = escapeXML(tag.getIntentID());
-				printf(" is-intent=\"1\"");
-				printf(" intent-id=\"%s\"", id);
+				sinkElement.setAttribute("is-intent", "1");
+				sinkElement.setAttribute("intent-id", tag.getIntentID());
+
 				try {
 					InvokeExpr ie = sink.getInvokeExpr();
 					AbstractInstanceInvokeExpr aie = (AbstractInstanceInvokeExpr) ie;
 					Type baseType = aie.getBase().getType();
-					String cmp = escapeXML(baseType.toString());
-					printf(" component=\"%s\"", cmp);
+					sinkElement.setAttribute("component", baseType.toString());
 				} catch (Exception e) {
+					e.printStackTrace();
+					System.exit(-1);
 				}
 			}
 			if (Infoflow.isIntentResultSink(sink)) {
-				print(" is-intent-result=\"1\"");
+
 				SootMethod sm = cfg.getMethodOf(sink);
 				SootClass cls = sm.getDeclaringClass();
-				String cmp = escapeXML(cls.toString());
-				printf(" component=\"%s\"", cmp);
+				sinkElement.setAttribute("is-intent-result", "1");
+				sinkElement.setAttribute("component", cls.toString());
 			}
 
-			if (sink.hasTag("BooleanExpressionTag")) {
-				Tag tag = sink.getTag("BooleanExpressionTag");
-				String value = new String(tag.getValue());
-				System.out.println();
-				System.out.println(sink);
-				print(" cond=\"" + escapeXML(value) + "\"");
-			}
-
-			println("></sink>");
+			return sinkElement;
 		}
 
-		public void handleSource(ResultSourceInfo srcInfo, IInfoflowCFG cfg, InfoflowResults results) {
+		public Element handleSource(ResultSourceInfo srcInfo, IInfoflowCFG cfg, InfoflowResults results) {
 			Stmt src = srcInfo.getSource();
 			SootMethod sm = cfg.getMethodOf(src);
 			String methName = sm.getName();
 			String methSig = getMethSig(srcInfo.getSource());
+			Element srcElement = this.document.createElement("source");
+			srcElement.setAttribute("method", methSig);
+			srcElement.setAttribute("in", methName);
 
-			printf("\t<source method=\"%s\"", escapeXML(methSig));
 			if (methSig.indexOf(" getIntent()") != -1) {
 				InvokeExpr ie = src.getInvokeExpr();
 				AbstractInstanceInvokeExpr aie = (AbstractInstanceInvokeExpr) ie;
 				Type baseType = aie.getBase().getType();
-				String cmp = escapeXML(baseType.toString());
-				printf(" component=\"%s\"", cmp);
+				srcElement.setAttribute("component", baseType.toString());
 			} else if (methSig.indexOf(":= @parameter") != -1) {
 				SootClass cls = sm.getDeclaringClass();
-				String cmp = escapeXML(cls.toString());
-				printf(" component=\"%s\"", cmp);
+				srcElement.setAttribute("component", cls.toString());
 			}
-
-			printf(" in=\"%s\"", escapeXML(methName));
-			println("></source>");
+			return srcElement;
 		}
 
 		public String getMethSig(Stmt stmt) {
@@ -197,17 +173,28 @@ public class DidfailPhase1 {
 			}
 		}
 
-		public void handleResults(IInfoflowCFG cfg, InfoflowResults results) {
+		public void buildDocument(IInfoflowCFG cfg, InfoflowResults results) {
+			try {
+				DocumentBuilderFactory docFactory = DocumentBuilderFactory.newInstance();
+				DocumentBuilder docBuilder = docFactory.newDocumentBuilder();
+				this.document = docBuilder.newDocument();
+			} catch (ParserConfigurationException e) {
+				e.printStackTrace();
+				System.exit(-1);
+			}
+
+			Element rootElement = this.document.createElement("results");
+			rootElement.setAttribute("package", this.getAppPackage());
+			this.document.appendChild(rootElement);
+
 			if (results == null) {
-				print("No results found.");
-				return;
+				System.err.println("[DIDFAIL] No flows to report.");
 			}
 
 			MultiMap<ResultSinkInfo, ResultSourceInfo> resultInfos;
 			resultInfos = results.getResults();
 			Comparator<ResultSinkInfo> sinkSorter = new SinkComparator();
 			Comparator<ResultSourceInfo> sourceSorter = new SourceComparator();
-			String pkg = escapeXML(this.getAppPackage());
 
 			// Sort the sinks
 			Set<ResultSinkInfo> sinkSet = results.getResults().keySet();
@@ -215,12 +202,11 @@ public class DidfailPhase1 {
 			sinks.addAll(sinkSet);
 			Collections.sort(sinks, sinkSorter);
 
-			println("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
-			printf("<results package=\"%s\">\n", pkg);
 			for (ResultSinkInfo sinkInfo : sinks) {
-				println("<flow>");
-				System.out.println("SINK " + sinkInfo.getSink());
-				handleSink(sinkInfo, cfg, results);
+				Element flowElement = this.document.createElement("flow");
+				rootElement.appendChild(flowElement);
+
+				flowElement.appendChild(this.handleSink(sinkInfo, cfg, results));
 
 				// Sort the sourcesO
 				Set<ResultSourceInfo> srcSet = resultInfos.get(sinkInfo);
@@ -229,102 +215,31 @@ public class DidfailPhase1 {
 				Collections.sort(srcs, sourceSorter);
 
 				for (ResultSourceInfo srcInfo : srcs) {
-					System.out.println("SOURCE " + srcInfo.getSource());
-					handleSource(srcInfo, cfg, results);
+					flowElement.appendChild(this.handleSource(srcInfo, cfg, results));
 				}
-				println("</flow>");
 			}
-			println("</results>");
+		}
+
+		public void outputDocument(OutputStream out) throws IOException, TransformerException {
+			TransformerFactory tf = TransformerFactory.newInstance();
+			Transformer transformer = tf.newTransformer();
+			transformer.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "no");
+			transformer.setOutputProperty(OutputKeys.METHOD, "xml");
+			transformer.setOutputProperty(OutputKeys.INDENT, "yes");
+			transformer.setOutputProperty(OutputKeys.ENCODING, "UTF-8");
+			transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "4");
+
+			transformer.transform(new DOMSource(this.document), new StreamResult(new OutputStreamWriter(out, "UTF-8")));
 		}
 
 		@Override
 		public void onResultsAvailable(IInfoflowCFG cfg, InfoflowResults results) {
+			this.buildDocument(cfg, results);
 			try {
-				handleResults(cfg, results);
-			} finally {
-				if (this.wr != null) {
-					try {
-						this.wr.close();
-					} catch (Exception e) {
-					}
-				}
-			}
-		}
-
-		public static String escapeXML(Object obj) {
-			return escapeXML(obj.toString(), "");
-		}
-
-		public static String escapeXML(String str, String retIfNull) {
-			/*
-			 * Based on
-			 * http://www.docjar.com/html/api/org/apache/commons/lang/Entities
-			 * .java.html
-			 */
-			if (str == null) {
-				return retIfNull;
-			}
-			StringWriter writer = new StringWriter();
-
-			int len = str.length();
-			for (int i = 0; i < len; i++) {
-				char c = str.charAt(i);
-				if (c > 0x7F) {
-					writer.write("&#");
-					writer.write(Integer.toString(c, 10));
-					writer.write(';');
-				} else {
-					switch ((byte) c) {
-					case '&':
-						writer.write("&amp;");
-						break;
-					case '<':
-						writer.write("&lt;");
-						break;
-					case '>':
-						writer.write("&gt;");
-						break;
-					case '"':
-						writer.write("&quot;");
-						break;
-					case '\'':
-						writer.write("&apos;");
-						break;
-					default:
-						writer.write(c);
-					}
-				}
-			}
-			return writer.toString();
-		}
-
-		private void printf(String format, Object... args) {
-			try {
-				System.out.printf(format, args);
-				if (wr != null)
-					wr.write(String.format(format, args));
-			} catch (IOException ex) {
-				// ignore
-			}
-		}
-
-		private void println(String string) {
-			try {
-				System.out.println(string);
-				if (wr != null)
-					wr.write(string + "\n");
-			} catch (IOException ex) {
-				// ignore
-			}
-		}
-
-		private void print(String string) {
-			try {
-				System.out.print(string);
-				if (wr != null)
-					wr.write(string);
-			} catch (IOException ex) {
-				// ignore
+				this.outputDocument(this.os);
+			} catch (Exception e) {
+				e.printStackTrace();
+				System.exit(-1);
 			}
 		}
 	}
@@ -355,24 +270,19 @@ public class DidfailPhase1 {
 		new JCommander(jct, args);
 
 		FlowDroidFactory factory = new FlowDroidFactory();
-		SetupApplication app = factory.fromJson(readFile(jct.config), jct.apk);
-
-		// Add a preprocessing step
-		List<PreAnalysisHandler> preprocessors = new ArrayList<PreAnalysisHandler>();
-		preprocessors.add(new DidfailPreprocessor());
-		app.setPreprocessors(preprocessors);
-
-		BufferedWriter bw = null;
-		if (jct.outfile != null && !jct.outfile.isEmpty()) {
-			File out = new File(jct.outfile);
-			bw = new BufferedWriter(new FileWriter(out));
-		}
+		SetupApplication app = factory.fromJson(readFile(jct.config), jct.apk, jct.platforms, jct.sourcesAndSinks,
+				jct.taintWrapper, jct.aggresive);
 
 		// Create the result handler
-		DidfailResultHandler handler = new DidfailResultHandler(bw);
-		String pkg = app.getSourceSinkManager().getAppPackageName();
-		handler.setAppPackage(pkg);
+		DidfailResultHandler handler;
 
+		OutputStream os = System.out;
+		if (jct.outfile != null && !jct.outfile.isEmpty()) {
+			File out = new File(jct.outfile);
+			os = new FileOutputStream(out);
+		}
+		handler = new DidfailResultHandler(os);
+		handler.setAppPackage(app.getSourceSinkManager().getAppPackageName());
 		app.runInfoflow(handler);
 	}
 }

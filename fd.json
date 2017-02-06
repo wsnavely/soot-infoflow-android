@@ -1,48 +1,33 @@
 {
-	"general": 
-	{
-		"androidPlatformsFolder": "/home/cert/Android/Sdk/platforms",
-		"sourcesAndSinksFile": "/home/cert/git/soot-infoflow-android/SourcesAndSinks.txt"
-	},
-	
-	"taintwrapper": 
-	{
-		"taintWrapperFile": "/home/cert/git/soot-infoflow-android/EasyTaintWrapperSource.txt",
-		"aggressiveTaintWrapper": true
-	},
-		
-	"analysis": 
-	{
-        "accessPathLength" : 5,
-        "aliasingAlgorithm" : "FlowSensitive",
-        "callbackAnalyzer" : "Default",
-        "callgraphAlgorithm" : "AutomaticSelection",
-        "codeEliminationMode" : "PropagateConstants",
-        "computeResultPaths" : true,
-        "enableArraySizeTainting" : true,
-        "enableCallbacks" : true,
-        "enableCallbackSources" : true,
-        "enableExceptions" : true,
-        "enableImplicitFlows" : false,
-        "enableIncrementalReporting" : false,
-        "enableStaticTracking" : true,
-        "enableTaintAnalysis" : true,
-        "enableTypeChecking" : true,
-        "flowSensitiveAliasing" : true,
-        "ignoreFlowsInSystemPackages" : true,
-        "inspectSinks" : false,
-        "inspectSources" : false,
-        "layoutMatchingMode" : "MatchSensitiveOnly",
-        "logSourcesAndSinks" : true,
-        "maxTheadNum" : -1,
-        "mergeNeighbors" : false,
-        "oneResultPerAccessPath" : false,
-        "pathAgnosticResults" : false,
-        "pathBuilder" : "ContextInsensitiveSourceFinder",
-        "stopAfterFirstKFlows" : 0,
-        "useRecursiveAccessPaths" : true,
-        "useThisChainReduction" : true,
-        "useTypeTightening" : true,
-        "writeOutputFiles" : false
-	}
+    "accessPathLength" : 5,
+    "aliasingAlgorithm" : "FlowSensitive",
+    "callbackAnalyzer" : "Default",
+    "callgraphAlgorithm" : "AutomaticSelection",
+    "codeEliminationMode" : "PropagateConstants",
+    "computeResultPaths" : true,
+    "enableArraySizeTainting" : true,
+    "enableCallbacks" : true,
+    "enableCallbackSources" : true,
+    "enableExceptions" : true,
+    "enableImplicitFlows" : false,
+    "enableIncrementalReporting" : false,
+    "enableStaticTracking" : true,
+    "enableTaintAnalysis" : true,
+    "enableTypeChecking" : true,
+    "flowSensitiveAliasing" : true,
+    "ignoreFlowsInSystemPackages" : true,
+    "inspectSinks" : false,
+    "inspectSources" : false,
+    "layoutMatchingMode" : "MatchSensitiveOnly",
+    "logSourcesAndSinks" : true,
+    "maxTheadNum" : -1,
+    "mergeNeighbors" : false,
+    "oneResultPerAccessPath" : false,
+    "pathAgnosticResults" : false,
+    "pathBuilder" : "ContextInsensitiveSourceFinder",
+    "stopAfterFirstKFlows" : 0,
+    "useRecursiveAccessPaths" : true,
+    "useThisChainReduction" : true,
+    "useTypeTightening" : true,
+    "writeOutputFiles" : false
 }
