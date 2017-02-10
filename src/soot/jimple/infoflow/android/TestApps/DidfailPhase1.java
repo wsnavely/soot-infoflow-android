@@ -90,6 +90,11 @@ public class DidfailPhase1 {
 			Element sinkElement = this.document.createElement("sink");
 			sinkElement.setAttribute("method", methSig);
 
+			if (methSig.startsWith("<android.content.ContentResolver:")) {
+				sinkElement.setAttribute("contentprovider", "true");
+				sinkElement.setAttribute("cpuri", Infoflow.extractContentProviderURI(sinkInfo.getSink(), cfg));
+			}
+
 			if (Infoflow.isIntentSink(sink)) {
 				IntentTag tag = (IntentTag) sink.getTag("IntentID");
 				sinkElement.setAttribute("is-intent", "1");
@@ -105,18 +110,26 @@ public class DidfailPhase1 {
 					System.exit(-1);
 				}
 			}
-			if (Infoflow.isIntentResultSink(sink)) {
 
+			if (Infoflow.isIntentResultSink(sink)) {
 				SootMethod sm = cfg.getMethodOf(sink);
 				SootClass cls = sm.getDeclaringClass();
 				sinkElement.setAttribute("is-intent-result", "1");
 				sinkElement.setAttribute("component", cls.toString());
 			}
 
+			if (Infoflow.isFileSink(sink)) {
+				sinkElement.setAttribute("is-file", "1");
+				sinkElement.setAttribute("filepath", Infoflow.extractFilePath(sink, cfg));
+			} else {
+				sinkElement.setAttribute("is-file", "0");
+			}
+
 			return sinkElement;
 		}
 
-		public Element handleSource(ResultSourceInfo srcInfo, IInfoflowCFG cfg, InfoflowResults results) {
+		public Element handleSource(ResultSourceInfo srcInfo, ResultSinkInfo sinkInfo, IInfoflowCFG cfg,
+				InfoflowResults results) {
 			Stmt src = srcInfo.getSource();
 			SootMethod sm = cfg.getMethodOf(src);
 			String methName = sm.getName();
@@ -134,6 +147,19 @@ public class DidfailPhase1 {
 				SootClass cls = sm.getDeclaringClass();
 				srcElement.setAttribute("component", cls.toString());
 			}
+
+			if (methSig.startsWith("<android.content.ContentResolver:")) {
+				srcElement.setAttribute("contentprovider", "true");
+				srcElement.setAttribute("cpuri", Infoflow.extractContentProviderURI(sinkInfo.getSink(), cfg));
+			}
+
+			if (Infoflow.isFileSource(src)) {
+				srcElement.setAttribute("is-file", "1");
+				srcElement.setAttribute("filepath", Infoflow.extractFilePath(src, cfg));
+			} else {
+				srcElement.setAttribute("is-file", "0");
+			}
+
 			return srcElement;
 		}
 
@@ -205,7 +231,6 @@ public class DidfailPhase1 {
 			for (ResultSinkInfo sinkInfo : sinks) {
 				Element flowElement = this.document.createElement("flow");
 				rootElement.appendChild(flowElement);
-
 				flowElement.appendChild(this.handleSink(sinkInfo, cfg, results));
 
 				// Sort the sourcesO
@@ -215,7 +240,7 @@ public class DidfailPhase1 {
 				Collections.sort(srcs, sourceSorter);
 
 				for (ResultSourceInfo srcInfo : srcs) {
-					flowElement.appendChild(this.handleSource(srcInfo, cfg, results));
+					flowElement.appendChild(this.handleSource(srcInfo, sinkInfo, cfg, results));
 				}
 			}
 		}
@@ -242,6 +267,7 @@ public class DidfailPhase1 {
 				System.exit(-1);
 			}
 		}
+
 	}
 
 	public static void usage() {
@@ -276,7 +302,7 @@ public class DidfailPhase1 {
 		// Create the result handler
 		DidfailResultHandler handler;
 
-		OutputStream os = System.out;
+		OutputStream os = System.out;	
 		if (jct.outfile != null && !jct.outfile.isEmpty()) {
 			File out = new File(jct.outfile);
 			os = new FileOutputStream(out);
